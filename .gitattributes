@@ -1,0 +1,15 @@
+* text=auto eol=lf
+
+# Binary files - never touch line endings
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pyc binary
+*.npy binary
+*.npz binary
+*.pt binary
+*.pth binary
+*.pkl binary
+*.zip binary
+*.pdf binary
