@@ -47,7 +47,9 @@ class FrameBrowser:
         self.index = 0
 
         self.figure, self.axes = plt.subplots(2, 2, figsize=(13, 9))
-        self.figure.subplots_adjust(left=0.04, right=0.97, top=0.93, bottom=0.12, hspace=0.18)
+        self.figure.subplots_adjust(
+            left=0.04, right=0.97, top=0.93, bottom=0.12, hspace=0.18
+        )
         self.axes = self.axes.ravel()
         for axis in self.axes:
             axis.set_xticks([])
@@ -99,7 +101,10 @@ class FrameBrowser:
         depth = self.sequence.load_depth(frame)
         confidence = self.sequence.load_confidence(frame)
         cleaned, report = clean_depth(
-            depth, confidence, min_confidence=self.min_confidence, max_depth=self.max_depth
+            depth,
+            confidence,
+            min_confidence=self.min_confidence,
+            max_depth=self.max_depth,
         )
 
         valid = depth > 0
@@ -136,16 +141,26 @@ class FrameBrowser:
             )
         else:
             self.axes[2].text(
-                0.5, 0.5, "no confidence maps\nin this capture",
-                ha="center", va="center", fontsize=11, color="#888",
+                0.5,
+                0.5,
+                "no confidence maps\nin this capture",
+                ha="center",
+                va="center",
+                fontsize=11,
+                color="#888",
             )
             self.axes[2].set_title("confidence", fontsize=10)
 
         self.axes[3].imshow(shown_clean, cmap="turbo", vmin=0, vmax=self.max_depth)
-        rejected = {k: v for k, v in report.items() if k not in ("kept", "kept_fraction")}
-        summary = "  ".join(f"{k.split('_')[0]} {int(v):,}" for k, v in rejected.items() if v)
+        rejected = {
+            k: v for k, v in report.items() if k not in ("kept", "kept_fraction")
+        }
+        summary = "  ".join(
+            f"{k.split('_')[0]} {int(v):,}" for k, v in rejected.items() if v
+        )
         self.axes[3].set_title(
-            f"cleaned  kept {report['kept_fraction']:.1%}" + (f"   rejected: {summary}" if summary else ""),
+            f"cleaned  kept {report['kept_fraction']:.1%}"
+            + (f"   rejected: {summary}" if summary else ""),
             fontsize=10,
         )
 
@@ -156,7 +171,9 @@ class FrameBrowser:
             self.colourbars_done = True
 
         name = getattr(frame, "folder", None)
-        label = name.name if name is not None else getattr(frame, "key", str(self.index))
+        label = (
+            name.name if name is not None else getattr(frame, "key", str(self.index))
+        )
         self.figure.suptitle(
             f"frame {self.index + 1} / {len(self.sequence)}   {label}", fontsize=12
         )
@@ -164,9 +181,13 @@ class FrameBrowser:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--session", default=DEFAULT_SESSION)
-    parser.add_argument("--arkitscenes", action="store_true", help="read an ARKitScenes capture instead")
+    parser.add_argument(
+        "--arkitscenes", action="store_true", help="read an ARKitScenes capture instead"
+    )
     parser.add_argument("--root", default=DEFAULT_ARKITSCENES)
     parser.add_argument("--video-id", default="42444946")
     parser.add_argument("--max-depth", type=float, default=5.0)

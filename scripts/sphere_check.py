@@ -89,7 +89,9 @@ def main() -> int:
     parser.add_argument("meshes", nargs="+")
     parser.add_argument("--min-radius", type=float, default=0.20)
     parser.add_argument("--max-radius", type=float, default=0.45)
-    parser.add_argument("--tolerance", type=float, default=0.05, help="inlier band, metres")
+    parser.add_argument(
+        "--tolerance", type=float, default=0.05, help="inlier band, metres"
+    )
     parser.add_argument("--iterations", type=int, default=4000)
     parser.add_argument(
         "--centre",
@@ -118,7 +120,9 @@ def main() -> int:
 
         if args.centre is not None:
             centre_guess = np.asarray(args.centre, dtype=float)
-            nearby = points[np.linalg.norm(points - centre_guess, axis=1) < args.max_radius * 1.6]
+            nearby = points[
+                np.linalg.norm(points - centre_guess, axis=1) < args.max_radius * 1.6
+            ]
             if len(nearby) < 50:
                 print(f"{path.stem:>28} | too few points near the given centre")
                 continue
@@ -130,7 +134,11 @@ def main() -> int:
             if len(sample) > args.max_points:
                 sample = sample[rng.choice(len(sample), args.max_points, replace=False)]
             found = ransac_sphere(
-                sample, args.min_radius, args.max_radius, args.tolerance, args.iterations
+                sample,
+                args.min_radius,
+                args.max_radius,
+                args.tolerance,
+                args.iterations,
             )
             if found is None:
                 print(f"{path.stem:>28} | no sphere found in radius range")

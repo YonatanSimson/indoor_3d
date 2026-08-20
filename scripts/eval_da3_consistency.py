@@ -89,15 +89,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--session", default=r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941")
+    parser.add_argument(
+        "--session", default=r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941"
+    )
     parser.add_argument("--dirs", nargs="+", default=["output/da3", "output/da3_large"])
     parser.add_argument("--min-confidence", type=int, default=1)
     args = parser.parse_args()
 
     sequence = RawRecordingSequence(args.session)
 
-    header = (f"{'prediction':>18} | {'n':>3} | {'raw':>8} | {'after affine':>13} | "
-              f"{'rel':>6} | {'corr':>6} | {'scale range':>14}")
+    header = (
+        f"{'prediction':>18} | {'n':>3} | {'raw':>8} | {'after affine':>13} | "
+        f"{'rel':>6} | {'corr':>6} | {'scale range':>14}"
+    )
     print(header)
     print("-" * len(header))
 
@@ -116,7 +120,9 @@ def main() -> int:
     print("\nraw          = absolute disagreement with LiDAR")
     print("after affine = what remains once per-frame scale and offset are removed")
     print("               (small = shape is right, anchoring will fix the rest)")
-    print("scale range  = across frames; a wide range means per-frame anchoring is required")
+    print(
+        "scale range  = across frames; a wide range means per-frame anchoring is required"
+    )
     return 0
 
 

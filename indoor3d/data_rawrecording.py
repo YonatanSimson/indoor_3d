@@ -60,7 +60,9 @@ class RawRecordingSequence:
     def __init__(self, session: Path | str, intrinsics_space: str = "depth"):
         self.session = Path(session)
         if intrinsics_space not in {"depth", "rgb"}:
-            raise ValueError(f"intrinsics_space must be 'depth' or 'rgb', got {intrinsics_space!r}")
+            raise ValueError(
+                f"intrinsics_space must be 'depth' or 'rgb', got {intrinsics_space!r}"
+            )
         self.intrinsics_space = intrinsics_space
         self._refined: dict[str, np.ndarray] = {}
 
@@ -78,7 +80,12 @@ class RawRecordingSequence:
     # -- construction --------------------------------------------------------
 
     def _index_frames(self) -> list[RawFrame]:
-        required = ("image.jpg", "depth.bin", "camera_extrinsics.json", "camera_intrinsics.json")
+        required = (
+            "image.jpg",
+            "depth.bin",
+            "camera_extrinsics.json",
+            "camera_intrinsics.json",
+        )
         frames: list[RawFrame] = []
         for index, folder in enumerate(sorted(self.session.glob("frame_*"))):
             if not all((folder / name).is_file() for name in required):
@@ -94,7 +101,9 @@ class RawRecordingSequence:
         return frames
 
     @staticmethod
-    def _read_meta(path: Path, default_width: int, default_height: int) -> tuple[int, int]:
+    def _read_meta(
+        path: Path, default_width: int, default_height: int
+    ) -> tuple[int, int]:
         if not path.is_file():
             return default_width, default_height
         meta = json.loads(path.read_text())
@@ -170,7 +179,9 @@ class RawRecordingSequence:
         scaled[1, :] *= scale_y  # fy and cy
         return scaled, depth_width, depth_height
 
-    def camera_to_world(self, frame: RawFrame, traj_convention: str = "rub") -> np.ndarray:
+    def camera_to_world(
+        self, frame: RawFrame, traj_convention: str = "rub"
+    ) -> np.ndarray:
         """ARKit's camera-to-world transform, returned in RDF axes."""
         data = json.loads((frame.folder / "camera_extrinsics.json").read_text())
         transform = np.asarray(data["transform_matrix"], dtype=np.float64).T
@@ -189,7 +200,9 @@ class RawRecordingSequence:
             return transform
         raise ValueError(f"unknown traj_convention {traj_convention!r}")
 
-    def world_to_camera(self, frame: RawFrame, traj_convention: str = "rub") -> np.ndarray:
+    def world_to_camera(
+        self, frame: RawFrame, traj_convention: str = "rub"
+    ) -> np.ndarray:
         refined = self._refined.get(frame.folder.name)
         if refined is not None:
             # Already RDF world-to-camera, and already aligned back into ARKit's

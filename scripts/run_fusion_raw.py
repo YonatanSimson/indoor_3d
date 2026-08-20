@@ -63,12 +63,16 @@ def measurement_error(
         points = np.stack([x, y, z], axis=1)
 
         homogeneous = np.hstack([points, np.ones((len(points), 1))])
-        clouds.append((homogeneous @ sequence.camera_to_world(frame, convention).T)[:, :3])
+        clouds.append(
+            (homogeneous @ sequence.camera_to_world(frame, convention).T)[:, :3]
+        )
 
     if not clouds:
         return float("nan"), float("nan")
 
-    query = o3d.core.Tensor(np.concatenate(clouds).astype(np.float32), dtype=o3d.core.Dtype.Float32)
+    query = o3d.core.Tensor(
+        np.concatenate(clouds).astype(np.float32), dtype=o3d.core.Dtype.Float32
+    )
     distances = scene.compute_distance(query).numpy()
     return float(np.median(distances)), float(distances.mean())
 
@@ -121,11 +125,17 @@ def main() -> int:
             else Path(args.refined_poses)
         )
         if not poses_path.is_file():
-            raise SystemExit(f"no refined poses at {poses_path}; run scripts/run_colmap_raw.py first")
+            raise SystemExit(
+                f"no refined poses at {poses_path}; run scripts/run_colmap_raw.py first"
+            )
         matched = sequence.load_refined_poses(poses_path)
-        print(f"using refined poses for {matched}/{len(sequence)} frames ({poses_path.name})")
+        print(
+            f"using refined poses for {matched}/{len(sequence)} frames ({poses_path.name})"
+        )
         if matched < len(sequence):
-            print(f"  {len(sequence) - matched} unregistered frames keep their ARKit pose")
+            print(
+                f"  {len(sequence) - matched} unregistered frames keep their ARKit pose"
+            )
 
     def build(convention: str) -> tuple[o3d.geometry.TriangleMesh, object]:
         config = FusionConfig(
@@ -142,7 +152,9 @@ def main() -> int:
         return fuse(sequence, config, progress_every=0)
 
     if args.compare_conventions:
-        print(f"\nfusing both conventions at {args.voxel * 1000:.0f} mm to see which coheres\n")
+        print(
+            f"\nfusing both conventions at {args.voxel * 1000:.0f} mm to see which coheres\n"
+        )
         header = f"{'convention':>10} | {'verts':>9} | {'tris':>10} | {'area m2':>8} | {'median mm':>9} | {'mean mm':>8}"
         print(header)
         print("-" * len(header))
@@ -160,11 +172,15 @@ def main() -> int:
             )
 
         best = min(scores, key=scores.get)
-        print(f"\nverdict: '{best}' -- measurements sit closest to the surface it builds")
+        print(
+            f"\nverdict: '{best}' -- measurements sit closest to the surface it builds"
+        )
         return 0
 
-    print(f"\nvoxel {args.voxel * 1000:.0f} mm, convention '{args.traj_convention}', "
-          f"min confidence {args.min_confidence}")
+    print(
+        f"\nvoxel {args.voxel * 1000:.0f} mm, convention '{args.traj_convention}', "
+        f"min confidence {args.min_confidence}"
+    )
     mesh, report = build(args.traj_convention)
 
     print(f"integrated {report.frames_integrated} frames in {report.seconds:.1f}s")
@@ -175,13 +191,20 @@ def main() -> int:
     if total_seen:
         print("depth pixels:")
         for name, value in sorted(discarded.items(), key=lambda kv: -kv[1]):
-            print(f"  rejected {name:>18}: {int(value):>12,} ({value / total_seen:.1%})")
+            print(
+                f"  rejected {name:>18}: {int(value):>12,} ({value / total_seen:.1%})"
+            )
         print(f"  {'kept':>27}: {int(kept):>12,} ({kept / total_seen:.1%})")
 
-    print(f"\nmesh: {len(mesh.vertices):,} vertices, {len(mesh.triangles):,} triangles, "
-          f"{mesh.get_surface_area():.1f} m2")
+    print(
+        f"\nmesh: {len(mesh.vertices):,} vertices, {len(mesh.triangles):,} triangles, "
+        f"{mesh.get_surface_area():.1f} m2"
+    )
 
-    out_path = Path(args.out or f"output/raw_{Path(args.session).name}_v{int(args.voxel*1000)}mm.ply")
+    out_path = Path(
+        args.out
+        or f"output/raw_{Path(args.session).name}_v{int(args.voxel*1000)}mm.ply"
+    )
     print(f"wrote {save_mesh(mesh, out_path)}")
     return 0
 

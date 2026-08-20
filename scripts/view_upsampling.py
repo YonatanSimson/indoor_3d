@@ -35,7 +35,9 @@ DEFAULT_SESSION = r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941"
 
 
 class UpsamplingViewer:
-    def __init__(self, sequence, index: int, scale: float, min_confidence: int, zoom: bool):
+    def __init__(
+        self, sequence, index: int, scale: float, min_confidence: int, zoom: bool
+    ):
         self.sequence = sequence
         self.index = index
         self.scale = scale
@@ -46,15 +48,18 @@ class UpsamplingViewer:
         # one moves the rest. That only lines up because every image is drawn
         # into the same normalised 0..1 extent below, despite the panels having
         # three different pixel resolutions.
-        self.figure, self.axes = plt.subplots(2, 3, figsize=(16, 9), sharex=True, sharey=True)
-        self.figure.subplots_adjust(left=0.03, right=0.98, top=0.92, bottom=0.03,
-                                    hspace=0.15, wspace=0.08)
+        self.figure, self.axes = plt.subplots(
+            2, 3, figsize=(16, 9), sharex=True, sharey=True
+        )
+        self.figure.subplots_adjust(
+            left=0.03, right=0.98, top=0.92, bottom=0.03, hspace=0.15, wspace=0.08
+        )
         self.axes = self.axes.ravel()
         self.figure.canvas.mpl_connect("key_press_event", self._on_key)
         self.draw()
 
     def _on_key(self, event) -> None:
-        key = (event.key or "")
+        key = event.key or ""
         step = 10 if key.startswith("shift+") else 1
         key = key.replace("shift+", "")
 
@@ -93,7 +98,8 @@ class UpsamplingViewer:
             # which is what lets the shared axes align them pixel-for-pixel.
             axis.imshow(image, extent=(0.0, 1.0, 1.0, 0.0), aspect="auto", **kwargs)
             axis.set_title(title, fontsize=10)
-            axis.set_xticks([]); axis.set_yticks([])
+            axis.set_xticks([])
+            axis.set_yticks([])
 
         def crop(image):
             # Zoom is applied through the shared axis limits rather than by
@@ -102,25 +108,44 @@ class UpsamplingViewer:
 
         show(self.axes[0], crop(rgb), f"RGB guide  {rgb.shape[1]}x{rgb.shape[0]}")
 
-        show(self.axes[1], crop(np.where(valid, cleaned, np.nan)),
-             f"source depth  {w}x{h}  (nearest)", cmap="turbo", vmin=vmin, vmax=vmax,
-             interpolation="nearest")
+        show(
+            self.axes[1],
+            crop(np.where(valid, cleaned, np.nan)),
+            f"source depth  {w}x{h}  (nearest)",
+            cmap="turbo",
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="nearest",
+        )
 
         if confidence is not None:
             counts = np.bincount(confidence.ravel(), minlength=3) / confidence.size
-            show(self.axes[2], crop(confidence),
-                 f"confidence  low {counts[0]:.0%} / med {counts[1]:.0%} / high {counts[2]:.0%}",
-                 cmap=matplotlib.colors.ListedColormap(["#b2182b", "#f6c141", "#1a9850"]),
-                 vmin=0, vmax=2, interpolation="nearest")
+            show(
+                self.axes[2],
+                crop(confidence),
+                f"confidence  low {counts[0]:.0%} / med {counts[1]:.0%} / high {counts[2]:.0%}",
+                cmap=matplotlib.colors.ListedColormap(
+                    ["#b2182b", "#f6c141", "#1a9850"]
+                ),
+                vmin=0,
+                vmax=2,
+                interpolation="nearest",
+            )
         else:
             show(self.axes[2], np.zeros((h, w)), "no confidence map", cmap="grey")
 
         for axis, method in zip(self.axes[3:], ("bilinear", "joint", "solver")):
             out = outputs[method]
             filled = (out > 0).mean()
-            show(axis, crop(np.where(out > 0, out, np.nan)),
-                 f"{method}  {target_w}x{target_h}  filled {filled:.0%}",
-                 cmap="turbo", vmin=vmin, vmax=vmax, interpolation="nearest")
+            show(
+                axis,
+                crop(np.where(out > 0, out, np.nan)),
+                f"{method}  {target_w}x{target_h}  filled {filled:.0%}",
+                cmap="turbo",
+                vmin=vmin,
+                vmax=vmax,
+                interpolation="nearest",
+            )
 
         # Applied once, to a single axis: the shared link propagates it.
         if self.zoom:
@@ -141,12 +166,16 @@ class UpsamplingViewer:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--session", default=DEFAULT_SESSION)
     parser.add_argument("--frame", type=int, default=100)
     parser.add_argument("--scale", type=float, default=3.0)
     parser.add_argument("--min-confidence", type=int, default=1)
-    parser.add_argument("--zoom", action="store_true", help="start zoomed into the centre")
+    parser.add_argument(
+        "--zoom", action="store_true", help="start zoomed into the centre"
+    )
     args = parser.parse_args()
 
     sequence = RawRecordingSequence(args.session)

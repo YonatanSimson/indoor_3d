@@ -43,7 +43,9 @@ def load_laser(path: Path, voxel: float) -> o3d.geometry.PointCloud:
     return cloud
 
 
-def mesh_to_cloud(mesh: o3d.geometry.TriangleMesh, voxel: float) -> o3d.geometry.PointCloud:
+def mesh_to_cloud(
+    mesh: o3d.geometry.TriangleMesh, voxel: float
+) -> o3d.geometry.PointCloud:
     cloud = o3d.geometry.PointCloud()
     cloud.points = mesh.vertices
     return cloud.voxel_down_sample(voxel)
@@ -65,7 +67,8 @@ def register(
 
     def features(cloud):
         return o3d.pipelines.registration.compute_fpfh_feature(
-            cloud, o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=100)
+            cloud,
+            o3d.geometry.KDTreeSearchParamHybrid(radius=radius_feature, max_nn=100),
         )
 
     print("  global registration (RANSAC on FPFH)...", flush=True)
@@ -76,11 +79,15 @@ def register(
         features(target),
         mutual_filter=True,
         max_correspondence_distance=voxel * 1.5,
-        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(False),
+        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(
+            False
+        ),
         ransac_n=3,
         checkers=[
             o3d.pipelines.registration.CorrespondenceCheckerBasedOnEdgeLength(0.9),
-            o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(voxel * 1.5),
+            o3d.pipelines.registration.CorrespondenceCheckerBasedOnDistance(
+                voxel * 1.5
+            ),
         ],
         criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(4_000_000, 0.999),
     )
@@ -98,7 +105,9 @@ def register(
     return fine.transformation, fine.fitness, fine.inlier_rmse
 
 
-def distances_to_mesh(points: np.ndarray, mesh: o3d.geometry.TriangleMesh) -> np.ndarray:
+def distances_to_mesh(
+    points: np.ndarray, mesh: o3d.geometry.TriangleMesh
+) -> np.ndarray:
     scene = o3d.t.geometry.RaycastingScene()
     scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
     return scene.compute_distance(
@@ -108,11 +117,17 @@ def distances_to_mesh(points: np.ndarray, mesh: o3d.geometry.TriangleMesh) -> np
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--laser", default=r"C:\Users\user\data\arkitscenes_gt\421337\170078.ply")
-    parser.add_argument("--root", default=r"C:\Users\user\work\ARKit3d\sample_data\Validation")
+    parser.add_argument(
+        "--laser", default=r"C:\Users\user\data\arkitscenes_gt\421337\170078.ply"
+    )
+    parser.add_argument(
+        "--root", default=r"C:\Users\user\work\ARKit3d\sample_data\Validation"
+    )
     parser.add_argument("--video-id", default="42444946")
     parser.add_argument("--meshes", nargs="+", required=True)
-    parser.add_argument("--voxel", type=float, default=0.02, help="registration/eval resolution")
+    parser.add_argument(
+        "--voxel", type=float, default=0.02, help="registration/eval resolution"
+    )
     parser.add_argument(
         "--crop-around",
         nargs=3,
@@ -124,16 +139,22 @@ def main() -> int:
         "capture covers one room; cropping to the scanner's own neighbourhood "
         "is what makes registration tractable",
     )
-    parser.add_argument("--crop-size", type=float, default=9.0, help="half-extent of the crop, metres")
+    parser.add_argument(
+        "--crop-size", type=float, default=9.0, help="half-extent of the crop, metres"
+    )
     parser.add_argument(
         "--transform",
         default=None,
         help="use a saved laser->mesh transform from align_laser_manual.py instead "
         "of registering automatically",
     )
-    parser.add_argument("--max-distance", type=float, default=0.5,
-                        help="ignore laser points further than this from any mesh; the scan "
-                             "covers areas the phone never visited")
+    parser.add_argument(
+        "--max-distance",
+        type=float,
+        default=0.5,
+        help="ignore laser points further than this from any mesh; the scan "
+        "covers areas the phone never visited",
+    )
     args = parser.parse_args()
 
     laser_path = Path(args.laser)
@@ -149,8 +170,10 @@ def main() -> int:
         box = o3d.geometry.AxisAlignedBoundingBox(centre - half, centre + half)
         before = len(laser.points)
         laser = laser.crop(box)
-        print(f"cropped to {args.crop_size * 2:.0f} m box at {np.round(centre, 1)}: "
-              f"{before:,} -> {len(laser.points):,} points")
+        print(
+            f"cropped to {args.crop_size * 2:.0f} m box at {np.round(centre, 1)}: "
+            f"{before:,} -> {len(laser.points):,} points"
+        )
 
     sequence = Sequence(args.root, args.video_id)
     candidates = []
@@ -167,15 +190,19 @@ def main() -> int:
         laser, mesh_to_cloud(reference_mesh, args.voxel), args.voxel
     )
     if fitness < 0.3:
-        print(f"\nWARNING: registration fitness {fitness:.3f} is too low to trust. "
-              "The scan may cover a different area, or need manual alignment.")
+        print(
+            f"\nWARNING: registration fitness {fitness:.3f} is too low to trust. "
+            "The scan may cover a different area, or need manual alignment."
+        )
 
     laser.transform(transform)
     laser_points = np.asarray(laser.points)
     print(f"\nregistered laser cloud: {len(laser_points):,} points\n")
 
-    header = (f"{'mesh':>22} | {'accuracy median':>15} | {'accuracy mean':>13} | "
-              f"{'completeness <5cm':>17}")
+    header = (
+        f"{'mesh':>22} | {'accuracy median':>15} | {'accuracy mean':>13} | "
+        f"{'completeness <5cm':>17}"
+    )
     print(header)
     print("-" * len(header))
 
@@ -185,8 +212,11 @@ def main() -> int:
         # Accuracy: mesh vertices -> laser surface.
         tree = o3d.geometry.KDTreeFlann(laser)
         vertices = np.asarray(mesh.vertices)
-        sample = vertices[np.random.default_rng(0).choice(
-            len(vertices), min(200_000, len(vertices)), replace=False)]
+        sample = vertices[
+            np.random.default_rng(0).choice(
+                len(vertices), min(200_000, len(vertices)), replace=False
+            )
+        ]
         accuracy = []
         for point in sample:
             _, _, squared = tree.search_knn_vector_3d(point, 1)
@@ -198,14 +228,18 @@ def main() -> int:
         completeness = distances_to_mesh(laser_points, mesh)
         covered = completeness < args.max_distance
 
-        print(f"{name:>22} | {np.median(accuracy) * 1000:12.1f} mm | "
-              f"{accuracy.mean() * 1000:10.1f} mm | "
-              f"{(completeness[covered] < 0.05).mean():16.1%}")
+        print(
+            f"{name:>22} | {np.median(accuracy) * 1000:12.1f} mm | "
+            f"{accuracy.mean() * 1000:10.1f} mm | "
+            f"{(completeness[covered] < 0.05).mean():16.1%}"
+        )
 
     print("\naccuracy     = reconstruction -> laser (smaller is better)")
     print("completeness = share of laser points with surface within 5 cm")
-    print(f"points beyond {args.max_distance} m excluded: the scan covers rooms "
-          "the phone never entered")
+    print(
+        f"points beyond {args.max_distance} m excluded: the scan covers rooms "
+        "the phone never entered"
+    )
     return 0
 
 

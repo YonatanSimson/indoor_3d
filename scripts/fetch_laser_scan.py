@@ -18,7 +18,9 @@ BASE = "https://docs-assets.developer.apple.com/ml-research/datasets/arkitscenes
 
 def download(url: str, destination: Path) -> bool:
     if destination.exists() and destination.stat().st_size > 0:
-        print(f"  already have {destination.name} ({destination.stat().st_size / 1e6:.1f} MB)")
+        print(
+            f"  already have {destination.name} ({destination.stat().st_size / 1e6:.1f} MB)"
+        )
         return True
 
     partial = destination.with_suffix(destination.suffix + ".part")
@@ -31,8 +33,12 @@ def download(url: str, destination: Path) -> bool:
                     handle.write(chunk)
                     done += len(chunk)
                     if total:
-                        print(f"\r  {destination.name}: {done / 1e6:7.1f} / {total / 1e6:.1f} MB"
-                              f"  ({done / total:5.1%})", end="", flush=True)
+                        print(
+                            f"\r  {destination.name}: {done / 1e6:7.1f} / {total / 1e6:.1f} MB"
+                            f"  ({done / total:5.1%})",
+                            end="",
+                            flush=True,
+                        )
         print()
     except Exception as error:
         print(f"\n  FAILED {destination.name}: {error}")

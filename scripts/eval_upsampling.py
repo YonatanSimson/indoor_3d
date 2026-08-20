@@ -66,7 +66,11 @@ def evaluate_frame(depth, rgb, confidence, width, height, method, edge_quantile)
     away = valid & (distance > 8)
 
     return {
-        "alignment_px": float(np.median(distance[strong & valid])) if (strong & valid).any() else np.nan,
+        "alignment_px": (
+            float(np.median(distance[strong & valid]))
+            if (strong & valid).any()
+            else np.nan
+        ),
         "sharpness": float(grad[near_edge].mean()) if near_edge.any() else np.nan,
         "flat_noise": float(grad[away].mean()) if away.any() else np.nan,
         "filled": float(valid.mean()),
@@ -74,8 +78,12 @@ def evaluate_frame(depth, rgb, confidence, width, height, method, edge_quantile)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--session", default=r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--session", default=r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941"
+    )
     parser.add_argument("--num-frames", type=int, default=40)
     parser.add_argument("--scale", type=float, default=3.0)
     parser.add_argument("--min-confidence", type=int, default=1)
@@ -98,12 +106,16 @@ def main() -> int:
         width = int(depth.shape[1] * args.scale)
         height = int(depth.shape[0] * args.scale)
         for method in args.methods:
-            r = evaluate_frame(depth, rgb, confidence, width, height, method, args.edge_quantile)
+            r = evaluate_frame(
+                depth, rgb, confidence, width, height, method, args.edge_quantile
+            )
             if r:
                 results[method].append(r)
 
-    header = (f"{'method':>10} | {'alignment px':>13} | {'edge sharpness':>15} | "
-              f"{'flat noise':>11} | {'filled':>7}")
+    header = (
+        f"{'method':>10} | {'alignment px':>13} | {'edge sharpness':>15} | "
+        f"{'flat noise':>11} | {'filled':>7}"
+    )
     print(header)
     print("-" * len(header))
     for method in args.methods:
@@ -115,7 +127,9 @@ def main() -> int:
         sharp = np.nanmean([r["sharpness"] for r in rows])
         noise = np.nanmean([r["flat_noise"] for r in rows])
         filled = np.nanmean([r["filled"] for r in rows])
-        print(f"{method:>10} | {align:13.2f} | {sharp:15.4f} | {noise:11.4f} | {filled:6.1%}")
+        print(
+            f"{method:>10} | {align:13.2f} | {sharp:15.4f} | {noise:11.4f} | {filled:6.1%}"
+        )
 
     print("\nalignment px   = depth-edge to nearest image-edge (lower better)")
     print("edge sharpness = depth gradient at image edges (higher better)")

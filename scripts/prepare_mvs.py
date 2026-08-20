@@ -52,7 +52,15 @@ def select_references(
 
 
 def run_colmap(colmap_env: Path, command: str, **options) -> None:
-    argv = ["conda", "run", "--no-capture-output", "--prefix", str(colmap_env), "colmap.exe", command]
+    argv = [
+        "conda",
+        "run",
+        "--no-capture-output",
+        "--prefix",
+        str(colmap_env),
+        "colmap.exe",
+        command,
+    ]
     for key, value in options.items():
         if value is not None:
             argv += [f"--{key.replace('__', '.')}", str(value)]
@@ -65,10 +73,14 @@ def run_colmap(colmap_env: Path, command: str, **options) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--session", default=DEFAULT_SESSION)
     parser.add_argument("--colmap-env", default=DEFAULT_COLMAP_ENV)
-    parser.add_argument("--model", default=None, help="default: <session>/colmap/sparse/metric")
+    parser.add_argument(
+        "--model", default=None, help="default: <session>/colmap/sparse/metric"
+    )
     parser.add_argument("--dense", default=None, help="default: <session>/colmap/dense")
     parser.add_argument(
         "--min-baseline",
@@ -88,21 +100,31 @@ def main() -> int:
     args = parser.parse_args()
 
     session = Path(args.session)
-    model_dir = Path(args.model) if args.model else session / "colmap" / "sparse" / "metric"
+    model_dir = (
+        Path(args.model) if args.model else session / "colmap" / "sparse" / "metric"
+    )
     dense_dir = Path(args.dense) if args.dense else session / "colmap" / "dense"
     images_dir = session / "colmap" / "images"
 
     reconstruction = pycolmap.Reconstruction(str(model_dir))
-    print(f"model: {reconstruction.num_images()} images, {len(reconstruction.points3D):,} points")
+    print(
+        f"model: {reconstruction.num_images()} images, {len(reconstruction.points3D):,} points"
+    )
 
     references = select_references(reconstruction, args.min_baseline)
-    print(f"\nreference selection at {args.min_baseline * 100:.0f} cm: "
-          f"{len(references)}/{reconstruction.num_images()} frames kept")
+    print(
+        f"\nreference selection at {args.min_baseline * 100:.0f} cm: "
+        f"{len(references)}/{reconstruction.num_images()} frames kept"
+    )
 
     if args.pilot:
-        picks = np.linspace(0, len(references) - 1, min(args.pilot, len(references)), dtype=int)
+        picks = np.linspace(
+            0, len(references) - 1, min(args.pilot, len(references)), dtype=int
+        )
         references = [references[i] for i in picks]
-        print(f"pilot: reduced to {len(references)} references spread across the sequence")
+        print(
+            f"pilot: reduced to {len(references)} references spread across the sequence"
+        )
 
     # Remove non-reference frames from the model. Restricting only the config
     # is not enough: with geometric consistency, a reference is checked against
@@ -118,9 +140,11 @@ def main() -> int:
     reduced_dir = model_dir.parent / "mvs_refs"
     reduced_dir.mkdir(parents=True, exist_ok=True)
     reconstruction.write(str(reduced_dir))
-    print(f"reduced model: dropped {dropped} frames, "
-          f"{reconstruction.num_reg_images()} remain, "
-          f"{len(reconstruction.points3D):,} points survive -> {reduced_dir.name}")
+    print(
+        f"reduced model: dropped {dropped} frames, "
+        f"{reconstruction.num_reg_images()} remain, "
+        f"{len(reconstruction.points3D):,} points survive -> {reduced_dir.name}"
+    )
 
     # Deregistering frames strips their observations from every track, so most
     # points lose the support that made them useful and the covisibility graph
@@ -140,8 +164,10 @@ def main() -> int:
         output_path=triangulated_dir,
     )
     retriangulated = pycolmap.Reconstruction(str(triangulated_dir))
-    print(f"re-triangulated: {len(retriangulated.points3D):,} points "
-          f"across {retriangulated.num_reg_images()} images")
+    print(
+        f"re-triangulated: {len(retriangulated.points3D):,} points "
+        f"across {retriangulated.num_reg_images()} images"
+    )
 
     run_colmap(
         Path(args.colmap_env),
@@ -157,8 +183,10 @@ def main() -> int:
     # what geometric consistency requires. Only the source count needs touching.
     config_path = dense_dir / "stereo" / "patch-match.cfg"
     original = config_path.read_text().splitlines()
-    print(f"\npatch-match.cfg lists {len(original[0::2])} references, "
-          f"source spec '{original[1] if len(original) > 1 else '?'}'")
+    print(
+        f"\npatch-match.cfg lists {len(original[0::2])} references, "
+        f"source spec '{original[1] if len(original) > 1 else '?'}'"
+    )
     if args.num_src_images != 20:
         shutil.copy2(config_path, config_path.with_suffix(".cfg.orig"))
         with config_path.open("w") as handle:

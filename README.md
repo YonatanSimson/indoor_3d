@@ -14,7 +14,7 @@ Self-contained by design: nothing here imports from `ARKit3d` or `ARKitScenes`.
 | 1 — custom TSDF fusion | **done** |
 | 2 — pose refinement (COLMAP) | **done**; refined poses feed back into fusion |
 | 3 — depth upsampling | **done**; solver for interpolation, DA3 for holes |
-| 4 — dense MVS | not started |
+| 4 — dense MVS | **done — negative result**; does not help this capture |
 | 5 — surface & texture | not started |
 
 ## Setup
@@ -161,8 +161,28 @@ usually costs noise, so getting both is the signature of a global solve that
 uses ARKit's confidence to reject bad samples, rather than a local filter
 averaging its neighbours.
 
-Enable with `--upsample solver --upsample-scale 3`. It is off by default because
-it triples fusion time (52s to 162s over 539 frames).
+**But the solver moves depths it was given** -- measured at 110 mm on confident
+readings, and no setting fixes it: it is a regressor, fitting a smooth field
+everywhere rather than interpolating between measurements. Lowering the
+smoothness weight to 1 still left 89 mm of drift; more iterations changed
+nothing (the residual was already 1e-5).
+
+`--upsample anchored` fixes that by using the solver for structure and then
+correcting it to pass exactly through the measurements:
+
+| method | held-out error | drift on measured depths |
+|---|---|---|
+| bilinear | -- (cannot fill) | 0.0 mm |
+| solver | 106.9 mm | 100.6 mm |
+| **anchored** | **4.5 mm** | **0.0 mm** |
+
+Anchoring keeps most of the edge benefit (2.60 px alignment against the solver's
+1.82 and bilinear's 6.02) at zero cost to the data, and it improves held-out
+accuracy 24x as a side effect, because the residual correction also removes the
+solver's systematic bias.
+
+Enable with `--upsample anchored --upsample-scale 3`. Off by default because it
+triples fusion time (52s to 162s over 539 frames).
 
 ### Choosing the metric matters here
 
@@ -228,6 +248,58 @@ ever forms and interpolation wins trivially; real holes are contiguous, so the
 holdout has to remove blocks. And the first comparison was rigged: the solver
 masks its output to a dilation of its support, so it declined to fill holes at
 all and scored no data rather than a fair error.
+
+## Best known configuration
+
+```powershell
+python scripts/run_fusion_raw.py --refined-poses --voxel 0.010     --upsample anchored --upsample-scale 3 --out output/best.ply
+```
+
+Seeded COLMAP poses, a 10 mm voxel, and anchored upsampling. Judged by eye on a
+three-way comparison; the error metric disagrees, and the error metric is wrong
+(see below).
+
+### Why 10 mm, and not finer
+
+Voxel size is limited by **pose accuracy**, not by the sensor. COLMAP and ARKit
+disagree on camera position by ~7.5 mm, so at a 5 mm voxel the same wall seen
+from different frames lands in different voxels and averaging turns into
+crumpling. At 10 mm the pose error fits inside one voxel.
+
+The LiDAR itself is not the constraint at this range. Its angular resolution
+sounds coarse -- 256x192 against 2.8 MP of RGB -- but in metric terms at the
+scanned distance it is dense:
+
+| depth | LiDAR sample spacing |
+|---|---|
+| 0.64 m | 3.6 mm |
+| 1.12 m (median) | 6.3 mm |
+| 1.68 m | 9.4 mm |
+
+So the "56x resolution gap" that motivated Phases 3 and 4 is an angular
+comparison and misleading for a close-range scan. The sensor was delivering
+~6 mm sampling while fusion binned it into 15 mm voxels; but going below ~10 mm
+cannot help until the poses improve.
+
+### The evaluation metric is unreliable, and misled us twice
+
+Distance from raw LiDAR points to the reconstructed surface rewards fitting the
+sensor's **noise**, because it is scored against the same noisy measurements
+that built the mesh. It ranked, both times, the opposite way to visual quality:
+
+| mesh | median error | surface area | verdict by eye |
+|---|---|---|---|
+| 15 mm seed | 10.10 mm | **127.6 m2** | third |
+| 10 mm seed | **8.99 mm** | 155.8 m2 | second |
+| 10 mm seed + anchored | 9.79 mm | 155.3 m2 | **best** |
+| 5 mm seed | **7.34 mm** | 218.6 m2 | **worst** -- visibly crumpled |
+
+The 5 mm mesh scored best and looked worst. **Surface area was the honest
+signal**: a room that has not changed size gaining 71% of surface area is
+roughness being resolved, not detail.
+
+Treat the error figures as a regression check -- useful for catching something
+that breaks badly -- and not as a quality ranking.
 
 ## Camera conventions
 

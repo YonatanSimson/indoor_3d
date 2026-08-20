@@ -37,7 +37,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--session", default=r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941")
+    parser.add_argument(
+        "--session", default=r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941"
+    )
     parser.add_argument("--da3-dir", default="output/da3")
     parser.add_argument("--holdout", type=float, default=0.25)
     parser.add_argument(
@@ -50,9 +52,13 @@ def main() -> int:
         "trivially; genuine LiDAR holes are contiguous",
     )
     parser.add_argument("--min-confidence", type=int, default=1)
-    parser.add_argument("--dilate", type=int, default=6,
-                        help="radius defining a 'gap': hidden pixels further than this "
-                             "from any surviving sample")
+    parser.add_argument(
+        "--dilate",
+        type=int,
+        default=6,
+        help="radius defining a 'gap': hidden pixels further than this "
+        "from any surviving sample",
+    )
     args = parser.parse_args()
 
     sequence = RawRecordingSequence(args.session)
@@ -106,16 +112,26 @@ def main() -> int:
         solver, _ = anchor_to_measurements(
             solver,
             cv2.resize(partial, (width, height), interpolation=cv2.INTER_NEAREST),
-            cv2.resize(partial_conf, (width, height), interpolation=cv2.INTER_NEAREST)
-            if partial_conf is not None else None,
+            (
+                cv2.resize(
+                    partial_conf, (width, height), interpolation=cv2.INTER_NEAREST
+                )
+                if partial_conf is not None
+                else None
+            ),
             args.min_confidence,
             fit_scale=False,  # already metric: it interpolates measurements
         )
         da3, _ = anchor_to_measurements(
             predicted,
             cv2.resize(partial, (width, height), interpolation=cv2.INTER_NEAREST),
-            cv2.resize(partial_conf, (width, height), interpolation=cv2.INTER_NEAREST)
-            if partial_conf is not None else None,
+            (
+                cv2.resize(
+                    partial_conf, (width, height), interpolation=cv2.INTER_NEAREST
+                )
+                if partial_conf is not None
+                else None
+            ),
             args.min_confidence,
             fit_scale=True,
         )
@@ -123,13 +139,21 @@ def main() -> int:
         # Distance from each pixel to the nearest surviving sample, on the fine
         # grid, so "near" and "far" mean the same thing for both methods.
         support = cv2.resize(
-            (partial > 0).astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
+            (partial > 0).astype(np.uint8),
+            (width, height),
+            interpolation=cv2.INTER_NEAREST,
         )
-        distance = cv2.distanceTransform((support == 0).astype(np.uint8), cv2.DIST_L2, 3)
+        distance = cv2.distanceTransform(
+            (support == 0).astype(np.uint8), cv2.DIST_L2, 3
+        )
 
         scale_y, scale_x = height / truth.shape[0], width / truth.shape[1]
-        hr = np.clip(((rows[hide] + 0.5) * scale_y - 0.5).round().astype(int), 0, height - 1)
-        hc = np.clip(((cols[hide] + 0.5) * scale_x - 0.5).round().astype(int), 0, width - 1)
+        hr = np.clip(
+            ((rows[hide] + 0.5) * scale_y - 0.5).round().astype(int), 0, height - 1
+        )
+        hc = np.clip(
+            ((cols[hide] + 0.5) * scale_x - 0.5).round().astype(int), 0, width - 1
+        )
         actual = truth[rows[hide], cols[hide]]
         far = distance[hr, hc] > args.dilate
 
@@ -139,7 +163,9 @@ def main() -> int:
             errors[name]["near"].append(err[got & ~far])
             errors[name]["far"].append(err[got & far])
 
-    header = f"{'method':>8} | {'near a sample':>16} | {'in a gap':>14} | {'gap pixels':>11}"
+    header = (
+        f"{'method':>8} | {'near a sample':>16} | {'in a gap':>14} | {'gap pixels':>11}"
+    )
     print(header)
     print("-" * len(header))
     for name in ("solver", "da3"):
@@ -147,7 +173,9 @@ def main() -> int:
         far = np.concatenate(errors[name]["far"])
         share = len(far) / max(len(near) + len(far), 1)
         far_text = f"{np.median(far) * 1000:11.1f} mm" if len(far) else "          --"
-        print(f"{name:>8} | {np.median(near) * 1000:13.1f} mm | {far_text} | {share:10.1%}")
+        print(
+            f"{name:>8} | {np.median(near) * 1000:13.1f} mm | {far_text} | {share:10.1%}"
+        )
 
     print("\nnear a sample = hidden pixel within a few pixels of surviving LiDAR")
     print(f"in a gap      = further than {args.dilate} px from any surviving sample")

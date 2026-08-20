@@ -21,6 +21,7 @@ from __future__ import annotations
 import bisect
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Protocol
 
 import cv2
 import numpy as np
@@ -29,6 +30,29 @@ import numpy as np
 # looks down -Z) <-> Right-Down-Forward (OpenCV style, camera looks down +Z).
 # Negating Y and Z converts either direction, so the matrix is its own inverse.
 RUB_TO_RDF = np.diag([1.0, -1.0, -1.0, 1.0])
+
+
+class PosedSequence(Protocol):
+    """The interface `indoor3d.fusion.fuse` needs from a capture sequence.
+
+    `Sequence` (this module), `RawRecordingSequence` and `ICLNUIMSequence`
+    each implement this independently -- their per-frame record types differ
+    (`Frame`, `RawFrame`, `ICLNUIMFrame`), so `frame` is typed loosely here
+    rather than forcing a shared base class on three otherwise-unrelated
+    loaders.
+    """
+
+    def __len__(self) -> int: ...
+    def __getitem__(self, index: int) -> Any: ...
+
+    @property
+    def has_confidence(self) -> bool: ...
+
+    def load_rgb(self, frame: Any) -> np.ndarray: ...
+    def load_depth(self, frame: Any) -> np.ndarray: ...
+    def load_confidence(self, frame: Any) -> np.ndarray | None: ...
+    def intrinsics(self, frame: Any) -> tuple[np.ndarray, int, int]: ...
+    def world_to_camera(self, frame: Any, traj_convention: str = ...) -> np.ndarray: ...
 
 
 @dataclass(frozen=True)
@@ -52,7 +76,9 @@ def _parse_pose_line(line: str) -> tuple[float, np.ndarray]:
     """
     tokens = line.split()
     if len(tokens) != 7:
-        raise ValueError(f"expected 7 columns in trajectory line, got {len(tokens)}: {line!r}")
+        raise ValueError(
+            f"expected 7 columns in trajectory line, got {len(tokens)}: {line!r}"
+        )
 
     timestamp = float(tokens[0])
     axis_angle = np.asarray([float(t) for t in tokens[1:4]], dtype=np.float64)
@@ -128,7 +154,9 @@ class Sequence:
                     rgb_path=rgb_path,
                     depth_path=depth_path,
                     intrinsics_path=intrinsics_path,
-                    confidence_path=confidence_path if confidence_path.is_file() else None,
+                    confidence_path=(
+                        confidence_path if confidence_path.is_file() else None
+                    ),
                 )
             )
         if not frames:

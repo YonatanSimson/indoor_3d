@@ -53,7 +53,9 @@ def to_world(points: np.ndarray, camera_to_world: np.ndarray) -> np.ndarray:
     return (homogeneous @ camera_to_world.T)[:, :3]
 
 
-def distances_to_mesh(points: np.ndarray, mesh: o3d.geometry.TriangleMesh) -> np.ndarray:
+def distances_to_mesh(
+    points: np.ndarray, mesh: o3d.geometry.TriangleMesh
+) -> np.ndarray:
     scene = o3d.t.geometry.RaycastingScene()
     scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
     query = o3d.core.Tensor(points.astype(np.float32), dtype=o3d.core.Dtype.Float32)
@@ -78,19 +80,28 @@ def main() -> int:
 
     mesh_path = sequence.arkit_mesh_path
     if mesh_path is None:
-        print("ERROR: no ARKit reference mesh, cannot decide the convention", file=sys.stderr)
+        print(
+            "ERROR: no ARKit reference mesh, cannot decide the convention",
+            file=sys.stderr,
+        )
         return 1
 
     mesh = o3d.io.read_triangle_mesh(str(mesh_path))
-    print(f"reference mesh: {len(mesh.vertices)} vertices, {len(mesh.triangles)} triangles")
-    print(f"mesh bounds min {mesh.get_min_bound().round(2)} max {mesh.get_max_bound().round(2)}")
+    print(
+        f"reference mesh: {len(mesh.vertices)} vertices, {len(mesh.triangles)} triangles"
+    )
+    print(
+        f"mesh bounds min {mesh.get_min_bound().round(2)} max {mesh.get_max_bound().round(2)}"
+    )
 
     # Spread the sample across the whole session rather than clustering at the
     # start, so a single badly-tracked segment cannot dominate the verdict.
     indices = np.linspace(0, len(sequence) - 1, args.num_frames, dtype=int)
 
     print(f"\ntesting {len(indices)} frames, pixel stride {args.stride}")
-    print(f"{'convention':>12} | {'median':>8} | {'mean':>8} | {'p90':>8} | {'<5cm':>7}")
+    print(
+        f"{'convention':>12} | {'median':>8} | {'mean':>8} | {'p90':>8} | {'<5cm':>7}"
+    )
     print("-" * 56)
 
     results: dict[str, float] = {}

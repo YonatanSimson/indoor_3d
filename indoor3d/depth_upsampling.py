@@ -108,7 +108,9 @@ def upsample_bilateral_solver(
     if confidence is not None:
         # ARKit grades 0/1/2; map to a weight that ignores level 0 entirely and
         # trusts level 2 fully.
-        weights = np.take(np.array([0.0, 0.5, 1.0], np.float32), confidence.astype(np.int32))
+        weights = np.take(
+            np.array([0.0, 0.5, 1.0], np.float32), confidence.astype(np.int32)
+        )
         weights = cv2.resize(weights, (width, height), interpolation=cv2.INTER_NEAREST)
     else:
         weights = np.ones((height, width), np.float32)
@@ -174,9 +176,12 @@ def upsample_anchored(
         (width, height),
         interpolation=cv2.INTER_NEAREST,
     )
-    anchor_fine = cv2.resize(
-        anchor.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
-    ) > 0
+    anchor_fine = (
+        cv2.resize(
+            anchor.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
+        )
+        > 0
+    )
     anchor_fine &= solved > 0
 
     if not anchor_fine.any():

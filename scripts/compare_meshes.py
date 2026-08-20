@@ -66,7 +66,9 @@ def sample_measurements(
     clouds = []
     for index in indices:
         frame = sequence[index]
-        depth, _ = clean_depth(depth=sequence.load_depth(frame), confidence=sequence.load_confidence(frame))
+        depth, _ = clean_depth(
+            depth=sequence.load_depth(frame), confidence=sequence.load_confidence(frame)
+        )
         intrinsics, _, _ = sequence.intrinsics(frame)
 
         sub = depth[::stride, ::stride]
@@ -102,7 +104,9 @@ def main() -> int:
         "--root", default=r"C:\Users\user\work\ARKit3d\sample_data\Validation"
     )
     parser.add_argument("--video-id", default="42444946")
-    parser.add_argument("--meshes", nargs="+", required=True, help="fused mesh .ply paths")
+    parser.add_argument(
+        "--meshes", nargs="+", required=True, help="fused mesh .ply paths"
+    )
     parser.add_argument("--num-frames", type=int, default=60)
     parser.add_argument(
         "--holdout",
@@ -129,13 +133,19 @@ def main() -> int:
         available = np.array([i for i in range(len(sequence)) if i % args.holdout != 0])
         if len(available) == 0:
             raise SystemExit(f"--holdout {args.holdout} leaves no evaluation frames")
-        picks = np.linspace(0, len(available) - 1, min(args.num_frames, len(available)), dtype=int)
+        picks = np.linspace(
+            0, len(available) - 1, min(args.num_frames, len(available)), dtype=int
+        )
         indices = available[picks]
-        print(f"holdout: evaluating on {len(indices)} frames where index % {args.holdout} != 0")
+        print(
+            f"holdout: evaluating on {len(indices)} frames where index % {args.holdout} != 0"
+        )
     else:
         indices = np.linspace(0, len(sequence) - 1, args.num_frames, dtype=int)
         print("WARNING: evaluation frames overlap the fused frames; see --holdout")
-    measurements = sample_measurements(sequence, indices, args.stride, args.traj_convention)
+    measurements = sample_measurements(
+        sequence, indices, args.stride, args.traj_convention
+    )
     print(f"sampled {len(measurements):,} LiDAR points from {len(indices)} frames\n")
 
     candidates = [("ARKit (on-device)", baseline_path)] + [

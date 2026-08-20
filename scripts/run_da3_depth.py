@@ -37,9 +37,7 @@ from indoor3d.data_rawrecording import RawRecordingSequence
 from indoor3d.depth_filters import clean_depth
 
 DEFAULT_SESSION = r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941"
-DEFAULT_POSES = (
-    r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941\colmap\refined_poses.json"
-)
+DEFAULT_POSES = r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941\colmap\refined_poses.json"
 
 
 def scale_intrinsics(intrinsics: np.ndarray, sx: float, sy: float) -> np.ndarray:
@@ -54,10 +52,14 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--session", default=DEFAULT_SESSION)
-    parser.add_argument("--poses", default=DEFAULT_POSES, help="COLMAP refined poses, or none")
+    parser.add_argument(
+        "--poses", default=DEFAULT_POSES, help="COLMAP refined poses, or none"
+    )
     parser.add_argument("--model", default="depth-anything/DA3METRIC-LARGE")
     parser.add_argument("--stride", type=int, default=20, help="use every Nth frame")
-    parser.add_argument("--limit", type=int, default=16, help="how many frames in total")
+    parser.add_argument(
+        "--limit", type=int, default=16, help="how many frames in total"
+    )
     parser.add_argument(
         "--batch-size",
         type=int,
@@ -73,7 +75,9 @@ def main() -> int:
     )
     parser.add_argument("--min-confidence", type=int, default=1)
     parser.add_argument("--no-pose-conditioning", action="store_true")
-    parser.add_argument("--out", default="output/da3", help="directory for depth .npz files")
+    parser.add_argument(
+        "--out", default="output/da3", help="directory for depth .npz files"
+    )
     args = parser.parse_args()
 
     import torch
@@ -99,9 +103,13 @@ def main() -> int:
     inner = getattr(model, "model", model)
     pose_conditioning = not args.no_pose_conditioning
     if pose_conditioning and getattr(inner, "cam_enc", None) is None:
-        print(f"note: {args.model} has no camera encoder, so it cannot be "
-              "pose-conditioned; running monocular instead")
-        print("      (use a multi-view checkpoint such as DA3-LARGE for pose conditioning)")
+        print(
+            f"note: {args.model} has no camera encoder, so it cannot be "
+            "pose-conditioned; running monocular instead"
+        )
+        print(
+            "      (use a multi-view checkpoint such as DA3-LARGE for pose conditioning)"
+        )
         pose_conditioning = False
 
     out_dir = Path(args.out)
@@ -113,8 +121,12 @@ def main() -> int:
         frames = [sequence[i] for i in chunk]
 
         images = [sequence.load_rgb(f) for f in frames]
-        extrinsics = np.stack([sequence.world_to_camera(f) for f in frames]).astype(np.float32)
-        intrinsics = np.stack([sequence.intrinsics(f)[0] for f in frames]).astype(np.float32)
+        extrinsics = np.stack([sequence.world_to_camera(f) for f in frames]).astype(
+            np.float32
+        )
+        intrinsics = np.stack([sequence.intrinsics(f)[0] for f in frames]).astype(
+            np.float32
+        )
 
         started = time.perf_counter()
         prediction = model.inference(
@@ -126,7 +138,11 @@ def main() -> int:
         elapsed = time.perf_counter() - started
 
         depths = np.asarray(prediction.depth)
-        confs = np.asarray(prediction.conf) if getattr(prediction, "conf", None) is not None else None
+        confs = (
+            np.asarray(prediction.conf)
+            if getattr(prediction, "conf", None) is not None
+            else None
+        )
         print(
             f"  batch {start // args.batch_size}: {len(chunk)} views in {elapsed:.1f}s "
             f"-> depth {depths.shape}",
@@ -141,9 +157,13 @@ def main() -> int:
             # so the two can be compared pixel for pixel.
             confidence = sequence.load_confidence(frame)
             lidar, _ = clean_depth(
-                sequence.load_depth(frame), confidence, min_confidence=args.min_confidence
+                sequence.load_depth(frame),
+                confidence,
+                min_confidence=args.min_confidence,
             )
-            lidar_up = cv2.resize(lidar, (width, height), interpolation=cv2.INTER_NEAREST)
+            lidar_up = cv2.resize(
+                lidar, (width, height), interpolation=cv2.INTER_NEAREST
+            )
             conf_up = (
                 cv2.resize(confidence, (width, height), interpolation=cv2.INTER_NEAREST)
                 if confidence is not None
@@ -169,13 +189,19 @@ def main() -> int:
                 out_dir / f"{frame.folder.name}.npz",
                 depth=anchored,
                 predicted=predicted,
-                confidence=confs[position] if confs is not None else np.zeros_like(predicted),
-                intrinsics=scale_intrinsics(base_intrinsics, width / base_w, height / base_h),
+                confidence=(
+                    confs[position] if confs is not None else np.zeros_like(predicted)
+                ),
+                intrinsics=scale_intrinsics(
+                    base_intrinsics, width / base_w, height / base_h
+                ),
                 world_to_camera=sequence.world_to_camera(frame),
             )
             stats.append({"frame": frame.folder.name, "raw_gap_mm": raw_gap, **report})
 
-    print(f"\n{'frame':>14} | {'raw gap':>9} | {'scale':>7} | {'offset':>8} | {'anchors':>8}")
+    print(
+        f"\n{'frame':>14} | {'raw gap':>9} | {'scale':>7} | {'offset':>8} | {'anchors':>8}"
+    )
     print("-" * 58)
     for s in stats[:12]:
         print(
@@ -190,7 +216,9 @@ def main() -> int:
         f"affine scale: median {np.median(scales):.4f}, "
         f"spread {scales.min():.3f}-{scales.max():.3f}"
     )
-    print("(scale far from 1.0 means the metric output needed rescaling to match LiDAR;")
+    print(
+        "(scale far from 1.0 means the metric output needed rescaling to match LiDAR;"
+    )
     print(" a large spread across frames means it is not even self-consistent)")
     print(f"\nwrote {len(stats)} depth maps to {out_dir}")
     return 0

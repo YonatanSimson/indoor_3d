@@ -26,7 +26,10 @@ def main() -> int:
     parser.add_argument("--video-id", default="42444946")
     parser.add_argument("--out", default=None, help="output mesh path (.ply)")
     parser.add_argument(
-        "--voxel", type=float, default=0.02, help="voxel size in metres (ARKit uses ~0.04-0.05)"
+        "--voxel",
+        type=float,
+        default=0.02,
+        help="voxel size in metres (ARKit uses ~0.04-0.05)",
     )
     parser.add_argument("--sdf-trunc-voxels", type=float, default=4.0)
     parser.add_argument("--max-depth", type=float, default=5.0)
@@ -60,8 +63,12 @@ def main() -> int:
     )
 
     print(f"sequence {args.video_id}: {len(sequence)} posed frames")
-    print(f"voxel {config.voxel_length * 1000:.0f} mm, sdf_trunc {config.sdf_trunc * 1000:.0f} mm")
-    print(f"bilateral={config.bilateral} drop_flying_pixels={config.drop_flying_pixels}")
+    print(
+        f"voxel {config.voxel_length * 1000:.0f} mm, sdf_trunc {config.sdf_trunc * 1000:.0f} mm"
+    )
+    print(
+        f"bilateral={config.bilateral} drop_flying_pixels={config.drop_flying_pixels}"
+    )
     if not sequence.has_confidence:
         print(
             "note: no confidence maps in this capture, so confidence weighting is inactive"
@@ -81,7 +88,9 @@ def main() -> int:
     if total_seen:
         print("depth pixels:")
         for name, value in sorted(discarded.items(), key=lambda kv: -kv[1]):
-            print(f"  rejected {name:>18}: {int(value):>10,} ({value / total_seen:.1%})")
+            print(
+                f"  rejected {name:>18}: {int(value):>10,} ({value / total_seen:.1%})"
+            )
         print(f"  {'kept':>27}: {int(kept):>10,} ({kept / total_seen:.1%})")
 
     print(f"\nmesh: {len(mesh.vertices):,} vertices, {len(mesh.triangles):,} triangles")

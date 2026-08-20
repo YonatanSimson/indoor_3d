@@ -27,7 +27,9 @@ FUSED_GREY = (0.75, 0.78, 0.80)
 
 
 def prepare(
-    mesh: o3d.geometry.TriangleMesh, colour: tuple[float, float, float], use_vertex_colour: bool
+    mesh: o3d.geometry.TriangleMesh,
+    colour: tuple[float, float, float],
+    use_vertex_colour: bool,
 ) -> o3d.geometry.TriangleMesh:
     mesh = o3d.geometry.TriangleMesh(mesh)
     if not use_vertex_colour or not mesh.has_vertex_colors():
@@ -51,7 +53,10 @@ def main() -> int:
         help="show captured RGB instead of flat shading",
     )
     parser.add_argument(
-        "--gap", type=float, default=0.15, help="gap between meshes, as a fraction of width"
+        "--gap",
+        type=float,
+        default=0.15,
+        help="gap between meshes, as a fraction of width",
     )
     args = parser.parse_args()
 

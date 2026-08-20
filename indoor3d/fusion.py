@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 import open3d as o3d
 
-from .data import Sequence
+from .data import PosedSequence
 from .depth_filters import clean_depth
 from .depth_upsampling import upsample
 
@@ -93,7 +93,7 @@ def _as_open3d_intrinsic(
 
 
 def fuse(
-    sequence: Sequence,
+    sequence: PosedSequence,
     config: FusionConfig | None = None,
     progress_every: int = 100,
 ) -> tuple[o3d.geometry.TriangleMesh, FusionReport]:
@@ -177,7 +177,9 @@ def fuse(
             convert_rgb_to_intensity=False,
         )
 
-        volume.integrate(rgbd, _as_open3d_intrinsic(intrinsics, width, height), extrinsic)
+        volume.integrate(
+            rgbd, _as_open3d_intrinsic(intrinsics, width, height), extrinsic
+        )
         report.frames_integrated += 1
 
         if progress_every and count % progress_every == 0:

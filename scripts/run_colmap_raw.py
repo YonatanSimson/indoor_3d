@@ -29,46 +29,28 @@ import argparse
 import json
 import shutil
 import sqlite3
-import subprocess
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
-from skimage.transform import EuclideanTransform, SimilarityTransform
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from indoor3d.colmap_utils import (
+    camera_centre,
+    read_database,
+    read_model_images,
+    resolve_model_dir,
+    rotation_to_quaternion,
+    run_colmap,
+    similarity_transform,
+)
 from indoor3d.data_rawrecording import RawRecordingSequence
 
 DEFAULT_SESSION = r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941"
 DEFAULT_COLMAP_ENV = r"C:\Users\User\anaconda3\envs\colmap"
 
 STAGES = ("images", "features", "match", "seed", "triangulate", "bundle", "export")
-
-
-def run_colmap(colmap_env: Path, command: str, **options) -> None:
-    """Invoke one COLMAP command inside its conda environment.
-
-    COLMAP lives in its own environment so its Qt/CUDA stack stays away from
-    Open3D's; `conda run` gets the DLL search path set up correctly, which
-    calling the .exe directly does not reliably do on Windows.
-    """
-    argv = [
-        "conda", "run", "--no-capture-output", "--prefix", str(colmap_env),
-        "colmap.exe", command,
-    ]
-    for key, value in options.items():
-        if value is None:
-            continue
-        argv += [f"--{key.replace('__', '.')}", str(value)]
-
-    print(f"\n$ colmap {command} " + " ".join(argv[len(argv) - 2 * len(options) :]), flush=True)
-    started = time.perf_counter()
-    result = subprocess.run(argv, check=False)
-    if result.returncode != 0:
-        raise SystemExit(f"colmap {command} failed with exit code {result.returncode}")
-    print(f"  [{command} took {time.perf_counter() - started:.1f}s]", flush=True)
 
 
 def prepare_images(sequence: RawRecordingSequence, images_dir: Path) -> dict[str, int]:
@@ -99,61 +81,10 @@ def prepare_images(sequence: RawRecordingSequence, images_dir: Path) -> dict[str
             shutil.copy2(source, destination)
             copied += 1
 
-    print(f"prepared {len(mapping)} images ({linked} linked, {copied} copied) in {images_dir}")
-    return mapping
-
-
-def rotation_to_quaternion(rotation: np.ndarray) -> np.ndarray:
-    """Convert a 3x3 rotation to COLMAP's (qw, qx, qy, qz) order."""
-    trace = np.trace(rotation)
-    if trace > 0:
-        s = np.sqrt(trace + 1.0) * 2
-        qw = 0.25 * s
-        qx = (rotation[2, 1] - rotation[1, 2]) / s
-        qy = (rotation[0, 2] - rotation[2, 0]) / s
-        qz = (rotation[1, 0] - rotation[0, 1]) / s
-    elif rotation[0, 0] > rotation[1, 1] and rotation[0, 0] > rotation[2, 2]:
-        s = np.sqrt(1.0 + rotation[0, 0] - rotation[1, 1] - rotation[2, 2]) * 2
-        qw = (rotation[2, 1] - rotation[1, 2]) / s
-        qx = 0.25 * s
-        qy = (rotation[0, 1] + rotation[1, 0]) / s
-        qz = (rotation[0, 2] + rotation[2, 0]) / s
-    elif rotation[1, 1] > rotation[2, 2]:
-        s = np.sqrt(1.0 + rotation[1, 1] - rotation[0, 0] - rotation[2, 2]) * 2
-        qw = (rotation[0, 2] - rotation[2, 0]) / s
-        qx = (rotation[0, 1] + rotation[1, 0]) / s
-        qy = 0.25 * s
-        qz = (rotation[1, 2] + rotation[2, 1]) / s
-    else:
-        s = np.sqrt(1.0 + rotation[2, 2] - rotation[0, 0] - rotation[1, 1]) * 2
-        qw = (rotation[1, 0] - rotation[0, 1]) / s
-        qx = (rotation[0, 2] + rotation[2, 0]) / s
-        qy = (rotation[1, 2] + rotation[2, 1]) / s
-        qz = 0.25 * s
-    return np.array([qw, qx, qy, qz])
-
-
-def quaternion_to_rotation(q: np.ndarray) -> np.ndarray:
-    qw, qx, qy, qz = q / np.linalg.norm(q)
-    return np.array(
-        [
-            [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw)],
-            [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw)],
-            [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)],
-        ]
+    print(
+        f"prepared {len(mapping)} images ({linked} linked, {copied} copied) in {images_dir}"
     )
-
-
-def read_database(database_path: Path) -> list[tuple[int, str, int]]:
-    """Return (image_id, name, camera_id) rows COLMAP assigned during extraction.
-
-    The model files must use COLMAP's own image ids, not the order frames happen
-    to sit in on disk, or triangulation silently associates the wrong features.
-    """
-    with sqlite3.connect(database_path) as connection:
-        return connection.execute(
-            "SELECT image_id, name, camera_id FROM images ORDER BY image_id"
-        ).fetchall()
+    return mapping
 
 
 def write_pose_priors(
@@ -205,7 +136,9 @@ def write_pose_priors(
 
     # coordinate_system 1 is CARTESIAN: a local metric frame, which is what
     # ARKit's world is. The default -1 means undefined and is ignored.
-    print(f"wrote {written} pose priors (std {std * 100:.0f} cm), {remaining} left unset")
+    print(
+        f"wrote {written} pose priors (std {std * 100:.0f} cm), {remaining} left unset"
+    )
     return written
 
 
@@ -235,7 +168,14 @@ def write_seed_model(
         intrinsics, width, height = sequence.intrinsics(frame)
         cameras.setdefault(
             camera_id,
-            (width, height, intrinsics[0, 0], intrinsics[1, 1], intrinsics[0, 2], intrinsics[1, 2]),
+            (
+                width,
+                height,
+                intrinsics[0, 0],
+                intrinsics[1, 1],
+                intrinsics[0, 2],
+                intrinsics[1, 2],
+            ),
         )
 
         world_to_camera = sequence.world_to_camera(frame, convention)
@@ -249,7 +189,9 @@ def write_seed_model(
     with (model_dir / "cameras.txt").open("w") as handle:
         handle.write("# CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n")
         for camera_id, (width, height, fx, fy, cx, cy) in sorted(cameras.items()):
-            handle.write(f"{camera_id} PINHOLE {width} {height} {fx:.6f} {fy:.6f} {cx:.6f} {cy:.6f}\n")
+            handle.write(
+                f"{camera_id} PINHOLE {width} {height} {fx:.6f} {fy:.6f} {cx:.6f} {cy:.6f}\n"
+            )
 
     with (model_dir / "images.txt").open("w") as handle:
         handle.write("# IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n")
@@ -258,59 +200,12 @@ def write_seed_model(
             # triangulator fills these in.
             handle.write(line + "\n\n")
 
-    (model_dir / "points3D.txt").write_text("# POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[]\n")
-    print(f"wrote seed model: {len(image_lines)} images, {len(cameras)} camera(s) -> {model_dir}")
-
-
-def read_model_images(model_dir: Path) -> dict[str, np.ndarray]:
-    """Read a COLMAP text model's images.txt into name -> world_to_camera 4x4."""
-    poses: dict[str, np.ndarray] = {}
-
-    # Each image occupies two lines: the pose, then its 2D observations. That
-    # second line is empty in a seed model, so blank lines cannot simply be
-    # skipped -- doing so desyncs the alternation and silently drops every other
-    # pose. Identifying pose lines by shape instead is robust to either case.
-    for line in (model_dir / "images.txt").read_text().splitlines():
-        if line.startswith("#"):
-            continue
-        tokens = line.split()
-        if len(tokens) != 10 or not tokens[0].isdigit():
-            continue
-
-        try:
-            q = np.array([float(t) for t in tokens[1:5]])
-            t = np.array([float(t) for t in tokens[5:8]])
-        except ValueError:
-            continue
-
-        world_to_camera = np.eye(4)
-        world_to_camera[:3, :3] = quaternion_to_rotation(q)
-        world_to_camera[:3, 3] = t
-        poses[tokens[9]] = world_to_camera
-
-    return poses
-
-
-def camera_centre(world_to_camera: np.ndarray) -> np.ndarray:
-    return -world_to_camera[:3, :3].T @ world_to_camera[:3, 3]
-
-
-def similarity_transform(source: np.ndarray, target: np.ndarray, with_scale: bool = True) -> np.ndarray:
-    """4x4 similarity mapping source points onto target.
-
-    scikit-image's SimilarityTransform is Umeyama (1991) internally and handles
-    the reflection case, so it is used rather than a local implementation.
-    """
-    if with_scale:
-        transform = SimilarityTransform.from_estimate(source, target)
-    else:
-        # Scale locked at 1 keeps the result metric, which matters because the
-        # LiDAR fixes real-world scale and COLMAP has no business changing it.
-        transform = EuclideanTransform.from_estimate(source, target)
-
-    if not transform:
-        raise RuntimeError(f"could not estimate a transform from {len(source)} correspondences")
-    return np.asarray(transform.params)
+    (model_dir / "points3D.txt").write_text(
+        "# POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[]\n"
+    )
+    print(
+        f"wrote seed model: {len(image_lines)} images, {len(cameras)} camera(s) -> {model_dir}"
+    )
 
 
 def align_to_arkit(
@@ -336,7 +231,9 @@ def align_to_arkit(
     refined_centres = np.array([camera_centre(refined[name]) for name in names])
     arkit_centres = np.array(
         [
-            camera_centre(sequence.world_to_camera(sequence[name_to_index[name]], convention))
+            camera_centre(
+                sequence.world_to_camera(sequence[name_to_index[name]], convention)
+            )
             for name in names
         ]
     )
@@ -367,7 +264,9 @@ def align_to_arkit(
     check = np.array([camera_centre(aligned[name]) for name in names])
     if not np.allclose(check, mapped_centres, atol=1e-6):
         drift = float(np.abs(check - mapped_centres).max())
-        print(f"  note: aligned poses and mapped centres disagree by up to {drift:.2e} m")
+        print(
+            f"  note: aligned poses and mapped centres disagree by up to {drift:.2e} m"
+        )
 
     stats = {
         "scale": scale,
@@ -378,10 +277,16 @@ def align_to_arkit(
     }
 
     print(f"\naligned {len(names)} refined poses back into ARKit's frame")
-    print(f"  gauge float removed : {stats['gauge_shift_m']:.2f} m (arbitrary, not error)")
+    print(
+        f"  gauge float removed : {stats['gauge_shift_m']:.2f} m (arbitrary, not error)"
+    )
     print(f"  scale factor        : {scale:.5f}", end="")
     if with_scale:
-        print(f"  ({abs(scale - 1) * 100:.2f}% off metric)" if abs(scale - 1) > 1e-4 else "")
+        print(
+            f"  ({abs(scale - 1) * 100:.2f}% off metric)"
+            if abs(scale - 1) > 1e-4
+            else ""
+        )
     else:
         print("  (held at 1, metric preserved)")
 
@@ -397,32 +302,6 @@ def align_to_arkit(
             "Check registered image count and match quality before trusting these poses."
         )
     return aligned, stats
-
-
-def resolve_model_dir(path: Path) -> Path:
-    """Return the directory actually holding a model.
-
-    The incremental mappers write their reconstructions into numbered
-    subdirectories (`0/`, `1/`, ... one per disconnected component) rather than
-    into the output path itself. Reading the parent silently picks up whatever
-    older model happens to sit there -- which once produced a full set of
-    plausible numbers that were really the previous run's.
-    """
-    # Sub-models are checked first, deliberately. A previous run's converted
-    # .txt files can be left sitting in the parent, and preferring the parent
-    # would silently read those stale poses instead of the new reconstruction.
-    candidates = sorted(
-        (child for child in path.iterdir() if child.is_dir() and (child / "images.bin").is_file()),
-        key=lambda child: (child / "points3D.bin").stat().st_size if (child / "points3D.bin").is_file() else 0,
-        reverse=True,
-    )
-    if not candidates:
-        if (path / "images.bin").is_file() or (path / "images.txt").is_file():
-            return path
-        raise SystemExit(f"no model found in {path} or its subdirectories")
-    if len(candidates) > 1:
-        print(f"note: {len(candidates)} sub-models in {path.name}, using the largest ({candidates[0].name})")
-    return candidates[0]
 
 
 def finish(
@@ -456,7 +335,11 @@ def finish(
             )
 
         aligned, stats = align_to_arkit(
-            sequence, refined, name_to_index, args.convention, with_scale=not args.fix_scale
+            sequence,
+            refined,
+            name_to_index,
+            args.convention,
+            with_scale=not args.fix_scale,
         )
 
         export = {
@@ -470,7 +353,11 @@ def finish(
                 for name, pose in sorted(aligned.items())
             },
         }
-        export_path = out_dir / f"refined_poses_{args.refined_name}.json" if args.refined_name != "refined" else out_dir / "refined_poses.json"
+        export_path = (
+            out_dir / f"refined_poses_{args.refined_name}.json"
+            if args.refined_name != "refined"
+            else out_dir / "refined_poses.json"
+        )
         export_path.write_text(json.dumps(export, indent=1))
         print(f"\nwrote {len(aligned)} refined poses -> {export_path}")
 
@@ -479,7 +366,9 @@ def finish(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--session", default=DEFAULT_SESSION)
     parser.add_argument("--out", default=None, help="default: <session>/colmap")
     parser.add_argument("--colmap-env", default=DEFAULT_COLMAP_ENV)
@@ -489,8 +378,12 @@ def main() -> int:
         choices=["sequential", "exhaustive", "vocabtree"],
         help="sequential is fast; exhaustive finds loop closures but is O(n^2)",
     )
-    parser.add_argument("--vocab-tree", default=None, help="required for --matcher vocabtree")
-    parser.add_argument("--overlap", type=int, default=10, help="sequential matcher window")
+    parser.add_argument(
+        "--vocab-tree", default=None, help="required for --matcher vocabtree"
+    )
+    parser.add_argument(
+        "--overlap", type=int, default=10, help="sequential matcher window"
+    )
     parser.add_argument(
         "--single-camera",
         action="store_true",
@@ -568,7 +461,10 @@ def main() -> int:
             samples = np.array(
                 [
                     [k[0, 0], k[1, 1], k[0, 2], k[1, 2]]
-                    for k in (sequence.intrinsics(sequence[i])[0] for i in range(0, len(sequence), 10))
+                    for k in (
+                        sequence.intrinsics(sequence[i])[0]
+                        for i in range(0, len(sequence), 10)
+                    )
                 ]
             )
             fx, fy, cx, cy = np.median(samples, axis=0)
@@ -608,7 +504,9 @@ def main() -> int:
             )
         else:
             if not args.vocab_tree:
-                raise SystemExit("--matcher vocabtree needs --vocab-tree <path to .bin>")
+                raise SystemExit(
+                    "--matcher vocabtree needs --vocab-tree <path to .bin>"
+                )
             run_colmap(
                 colmap_env,
                 "sequential_matcher",
@@ -624,7 +522,12 @@ def main() -> int:
         write_seed_model(sequence, rows, name_to_index, seed_dir, args.convention)
         if args.mode == "priors":
             write_pose_priors(
-                sequence, rows, name_to_index, database_path, args.prior_std, args.convention
+                sequence,
+                rows,
+                name_to_index,
+                database_path,
+                args.prior_std,
+                args.convention,
             )
 
     if args.mode == "priors":
@@ -649,8 +552,14 @@ def main() -> int:
                 Mapper__ba_refine_sensor_from_rig=0,
             )
         return finish(
-            args, session, out_dir, resolve_model_dir(refined_dir), sequence,
-            name_to_index, colmap_env, begin
+            args,
+            session,
+            out_dir,
+            resolve_model_dir(refined_dir),
+            sequence,
+            name_to_index,
+            colmap_env,
+            begin,
         )
 
     if begin <= STAGES.index("triangulate"):
@@ -686,8 +595,14 @@ def main() -> int:
         )
 
     return finish(
-        args, session, out_dir, resolve_model_dir(refined_dir), sequence,
-        name_to_index, colmap_env, begin
+        args,
+        session,
+        out_dir,
+        resolve_model_dir(refined_dir),
+        sequence,
+        name_to_index,
+        colmap_env,
+        begin,
     )
 
 

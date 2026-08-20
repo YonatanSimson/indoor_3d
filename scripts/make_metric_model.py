@@ -152,48 +152,75 @@ def filter_points(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--session", default=DEFAULT_SESSION)
-    parser.add_argument("--model", default=None, help="default: <session>/colmap/sparse/seed_src")
-    parser.add_argument("--out", default=None, help="default: <session>/colmap/sparse/metric")
-    parser.add_argument("--max-images", type=int, default=120, help="images sampled for scale")
+    parser.add_argument(
+        "--model", default=None, help="default: <session>/colmap/sparse/seed_src"
+    )
+    parser.add_argument(
+        "--out", default=None, help="default: <session>/colmap/sparse/metric"
+    )
+    parser.add_argument(
+        "--max-images", type=int, default=120, help="images sampled for scale"
+    )
     parser.add_argument("--min-confidence", type=int, default=1)
     parser.add_argument("--max-reproj-error", type=float, default=4.0)
     parser.add_argument("--min-track-length", type=int, default=3)
     args = parser.parse_args()
 
     session = Path(args.session)
-    model_dir = Path(args.model) if args.model else session / "colmap" / "sparse" / "seed_src"
+    model_dir = (
+        Path(args.model) if args.model else session / "colmap" / "sparse" / "seed_src"
+    )
     out_dir = Path(args.out) if args.out else session / "colmap" / "sparse" / "metric"
 
     sequence = RawRecordingSequence(session, intrinsics_space="rgb")
     reconstruction = pycolmap.Reconstruction(str(model_dir))
-    print(f"loaded {model_dir.name}: {reconstruction.num_images()} images, "
-          f"{len(reconstruction.points3D):,} points")
+    print(
+        f"loaded {model_dir.name}: {reconstruction.num_images()} images, "
+        f"{len(reconstruction.points3D):,} points"
+    )
 
     stats = filter_points(reconstruction, args.max_reproj_error, args.min_track_length)
-    print(f"\nfiltering: {stats['before']:,} -> {stats['after']:,} points "
-          f"({stats['removed_reprojection']:,} by reprojection > {args.max_reproj_error}px, "
-          f"{stats['removed_short_track']:,} with track < {args.min_track_length})")
+    print(
+        f"\nfiltering: {stats['before']:,} -> {stats['after']:,} points "
+        f"({stats['removed_reprojection']:,} by reprojection > {args.max_reproj_error}px, "
+        f"{stats['removed_short_track']:,} with track < {args.min_track_length})"
+    )
 
-    scale, report = lidar_scale(reconstruction, sequence, args.max_images, args.min_confidence)
-    print(f"\nLiDAR scale from {report['observations']:,} observations "
-          f"across {report['images']} images:")
+    scale, report = lidar_scale(
+        reconstruction, sequence, args.max_images, args.min_confidence
+    )
+    print(
+        f"\nLiDAR scale from {report['observations']:,} observations "
+        f"across {report['images']} images:"
+    )
     print(f"  scale = {scale:.5f}   (model is {1/scale:.3f}x larger than metric)")
-    print(f"  per-image spread p10-p90: {report['spread_p10']:.4f} - {report['spread_p90']:.4f} "
-          f"({report['relative_spread_pct']:.1f}% of scale)")
+    print(
+        f"  per-image spread p10-p90: {report['spread_p10']:.4f} - {report['spread_p90']:.4f} "
+        f"({report['relative_spread_pct']:.1f}% of scale)"
+    )
 
     # Cross-check against the independently derived ARKit alignment.
     import json
+
     poses_path = session / "colmap" / "refined_poses.json"
     if poses_path.is_file():
         arkit_scale = json.loads(poses_path.read_text())["alignment"]["scale"]
         disagreement = abs(scale - arkit_scale) / arkit_scale * 100
-        print(f"\ncross-check vs align_to_arkit: {arkit_scale:.5f} "
-              f"(disagreement {disagreement:.1f}%)")
+        print(
+            f"\ncross-check vs align_to_arkit: {arkit_scale:.5f} "
+            f"(disagreement {disagreement:.1f}%)"
+        )
         if disagreement > 5:
-            print("  WARNING: these are independent estimates and should agree closely.")
-            print("  A gap this large means one of them is wrong -- resolve before dense stereo.")
+            print(
+                "  WARNING: these are independent estimates and should agree closely."
+            )
+            print(
+                "  A gap this large means one of them is wrong -- resolve before dense stereo."
+            )
         else:
             print("  the two independent estimates agree; the gauge is trustworthy")
 
@@ -202,8 +229,12 @@ def main() -> int:
     reconstruction.write(str(out_dir))
     print(f"\nwrote metric model to {out_dir}")
 
-    centres = np.array([img.projection_center() for img in reconstruction.images.values()])
-    print(f"camera-centre extent after rescale: {np.round(centres.max(0) - centres.min(0), 2)} m")
+    centres = np.array(
+        [img.projection_center() for img in reconstruction.images.values()]
+    )
+    print(
+        f"camera-centre extent after rescale: {np.round(centres.max(0) - centres.min(0), 2)} m"
+    )
     return 0
 
 

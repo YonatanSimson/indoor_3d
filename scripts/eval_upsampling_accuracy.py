@@ -34,7 +34,9 @@ from indoor3d.depth_filters import clean_depth
 from indoor3d.depth_upsampling import upsample
 
 
-def sample_at(image: np.ndarray, rows: np.ndarray, cols: np.ndarray, scale: float) -> np.ndarray:
+def sample_at(
+    image: np.ndarray, rows: np.ndarray, cols: np.ndarray, scale: float
+) -> np.ndarray:
     """Read an upsampled image at the centres of the original pixels."""
     r = np.clip(((rows + 0.5) * scale - 0.5).round().astype(int), 0, image.shape[0] - 1)
     c = np.clip(((cols + 0.5) * scale - 0.5).round().astype(int), 0, image.shape[1] - 1)
@@ -42,11 +44,17 @@ def sample_at(image: np.ndarray, rows: np.ndarray, cols: np.ndarray, scale: floa
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--session", default=r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--session", default=r"C:\Users\user\data\iphone\RawRecording_2026-08-18_215941"
+    )
     parser.add_argument("--num-frames", type=int, default=30)
     parser.add_argument("--scale", type=float, default=3.0)
-    parser.add_argument("--holdout", type=float, default=0.25, help="fraction of samples hidden")
+    parser.add_argument(
+        "--holdout", type=float, default=0.25, help="fraction of samples hidden"
+    )
     parser.add_argument("--min-confidence", type=int, default=1)
     parser.add_argument("--methods", nargs="+", default=["bilinear", "joint", "solver"])
     args = parser.parse_args()
@@ -60,7 +68,9 @@ def main() -> int:
     missing: dict[str, int] = {m: 0 for m in args.methods}
     total_held = 0
 
-    print(f"{len(indices)} frames, x{args.scale:g}, hiding {args.holdout:.0%} of samples\n")
+    print(
+        f"{len(indices)} frames, x{args.scale:g}, hiding {args.holdout:.0%} of samples\n"
+    )
 
     for index in indices:
         frame = sequence[index]
@@ -110,8 +120,10 @@ def main() -> int:
             if ok.any():
                 drift[method].append(np.abs(observed[ok] - kept_truth[ok]))
 
-    header = (f"{'method':>10} | {'held-out median':>16} | {'held-out mean':>14} | "
-              f"{'no prediction':>14} | {'observed drift':>15}")
+    header = (
+        f"{'method':>10} | {'held-out median':>16} | {'held-out mean':>14} | "
+        f"{'no prediction':>14} | {'observed drift':>15}"
+    )
     print(header)
     print("-" * len(header))
     for method in args.methods:
@@ -120,11 +132,17 @@ def main() -> int:
             continue
         h = np.concatenate(held[method])
         d = np.concatenate(drift[method]) if drift[method] else np.array([np.nan])
-        print(f"{method:>10} | {np.median(h)*1000:13.1f} mm | {h.mean()*1000:11.1f} mm | "
-              f"{missing[method]/max(total_held,1):13.1%} | {np.median(d)*1000:12.1f} mm")
+        print(
+            f"{method:>10} | {np.median(h)*1000:13.1f} mm | {h.mean()*1000:11.1f} mm | "
+            f"{missing[method]/max(total_held,1):13.1%} | {np.median(d)*1000:12.1f} mm"
+        )
 
-    print(f"\nheld-out    = error at {args.holdout:.0%} of samples the method never saw")
-    print("observed drift = how far it moved depths it WAS given (lower = respects the data)")
+    print(
+        f"\nheld-out    = error at {args.holdout:.0%} of samples the method never saw"
+    )
+    print(
+        "observed drift = how far it moved depths it WAS given (lower = respects the data)"
+    )
     return 0
 
 
