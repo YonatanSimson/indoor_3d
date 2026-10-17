@@ -12,6 +12,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Callable
 
 import cv2
 import numpy as np
@@ -46,8 +47,17 @@ class FusionConfig:
     # Phase 3. Depth arrives at a fraction of the image resolution, so geometry
     # is capped by the smaller grid; upsampling under RGB guidance lifts that
     # cap by putting depth edges where the image says they are.
-    upsample_method: str = "none"  # none | bilinear | joint | solver
+    upsample_method: str = (
+        "none"  # none | bilinear | joint | solver | anchored | external
+    )
     upsample_scale: float = 1.0
+
+    # Required when upsample_method == "external": given the sequence's own
+    # frame record (same opaque type `load_rgb`/`load_depth` take), returns a
+    # dense depth prediction covering the frame's full (native) grid -- e.g.
+    # `indoor3d.da3_cache.CachedDepthProvider` reading precomputed DA3
+    # predictions. Resized to the upsample target if the two don't match.
+    depth_prior_provider: Callable[[Any], np.ndarray] | None = None
 
     bilateral: bool = True
     drop_flying_pixels: bool = True
@@ -152,8 +162,26 @@ def fuse(
             scale_x = target_w / depth.shape[1]
             scale_y = target_h / depth.shape[0]
 
+            prior = None
+            if config.upsample_method == "external":
+                if config.depth_prior_provider is None:
+                    raise ValueError(
+                        "upsample_method='external' requires FusionConfig.depth_prior_provider"
+                    )
+                prior = config.depth_prior_provider(frame)
+                if prior.shape != (target_h, target_w):
+                    prior = cv2.resize(
+                        prior, (target_w, target_h), interpolation=cv2.INTER_CUBIC
+                    )
+
             depth = upsample(
-                depth, color, confidence, target_w, target_h, config.upsample_method
+                depth,
+                color,
+                confidence,
+                target_w,
+                target_h,
+                config.upsample_method,
+                prior=prior,
             )
 
             # Intrinsics describe a pixel grid, so they must follow it.

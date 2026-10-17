@@ -18,15 +18,37 @@ what to do next. [README.md](README.md) holds the evidence behind each claim;
 | Phase | State |
 |---|---|
 | 0 — capture | done, by the `model_3d` iOS app (separate repo) |
-| 1 — custom TSDF fusion | **done** — 2.9x better than ARKit's on-device mesh |
+| 1 — custom TSDF fusion | **done, then superseded** — our Open3D fusion beat ARKit's on-device mesh by 2.9x, but lost a head-to-head against external tools (see External Repos) — **mrhash is now the chosen fusion tool** |
 | 2 — pose refinement (COLMAP) | **done** — +8%, and it caps everything downstream |
-| 3 — depth upsampling | **done** — anchored upsampling, used in the best config |
+| 3 — depth upsampling | **done** — anchored upsampling, used in the best config and feeds mrhash too |
 | 4 — dense MVS | **done — negative.** Does not help this capture |
 | 5 — surface & texture | not started |
 | 6 — polish | not started |
-| **V — validation on ground truth** | **next, and the priority.** See below |
+| **V — validation on ground truth** | **in progress (ICL-NUIM pass).** Pose ceiling, voxel sweep and 2/8 ablation done; DA3 depth cache built, DVP-MVS on ICL-NUIM staged but not run. See "Phase V status (2026-10-17)" below. ETH3D pass not started |
 
 ### Best known configuration
+
+**Chosen fusion tool: mrhash** ([rvp-group/mrhash](https://github.com/rvp-group/mrhash)), picked over supereight2 and nvblox by direct visual comparison (see External Repos). Two steps — export our data to Replica format, then run mrhash against it:
+
+```powershell
+# 1. Export (Windows, indoor3d conda env) - anchored upsampling + refined COLMAP poses by default
+conda activate indoor3d
+python scripts/export_replica.py
+# writes <session>/replica/scene/ (results/ + traj.txt) and <session>/replica/cam_params.json
+```
+
+```bash
+# 2. Run (WSL, mrhash's pixi env) - config at mrhash/configurations/indoor3d.cfg points
+# at the exported scene; edit data_path/results_path there for a different session
+cd ~/work/mrhash && pixi run python mrhash/apps/rgbd_runner.py mrhash/configurations/indoor3d.cfg
+```
+
+10 mm voxel, seeded COLMAP poses, anchored upsampling — same winning recipe as our
+own fusion's best config below, just run through mrhash's GPU hash-based fusion
+instead of our Open3D pipeline.
+
+**Our own fusion** (`scripts/run_fusion_raw.py`) is kept as a documented fallback —
+no external build/env dependency, useful if mrhash's WSL/pixi setup isn't available:
 
 ```powershell
 conda activate indoor3d
@@ -136,10 +158,174 @@ matrices (pose *and* intrinsics), direction, axes, and intrinsics describing the
 
 ---
 
+## Phase V results (2026-08-24)
+
+**A substantial chunk of Phase V was already run before this was written down**
+— `hand_off_original_plan.md` (a more detailed sibling doc, referenced by all
+the eval scripts below) and `scripts/{run_colmap_iclnuim,check_convention_iclnuim,
+eval_iclnuim_pose_ceiling,eval_iclnuim_voxel_sweep,eval_iclnuim_ablation,
+eval_iclnuim_dense_mvs}.py` plus `indoor3d/{data_iclnuim,iclnuim_eval,sensor_sim,
+colmap_utils,pose_perturbation}.py` already exist. Re-scored the existing output
+meshes against ground truth without re-running fusion (`scripts/
+rescore_iclnuim_existing.py` — cheap, reuses the cached ground-truth KD-tree):
+
+**Pose ceiling — decisive, complete, trustworthy.** GT poses: 10.4mm median
+accuracy. Perturbed poses (~7.5mm, matching real COLMAP-vs-ARKit disagreement):
+15.4mm (1.48x worse). **Pose accuracy is the ceiling** — this is no longer a
+guess. Phase 2 (pose refinement) is the real lever; finer voxels help once
+poses improve.
+
+**Voxel sweep — complete, confirms an existing hypothesis with real data.**
+15mm: 10.5mm | **10mm: 9.7mm (best)** | 5mm: 10.4mm. Non-monotonic, confirming
+"you cannot resolve below your pose accuracy" (Gotchas section, above) with
+ground truth instead of the distrusted raw-LiDAR proxy.
+
+**Ablation — only 2 of 8 planned depth×pose combinations ran.** `full 640x480
+depth + GT poses` (the ceiling question): 6.8mm — right in SOTA range
+(BundleFusion 7mm, ElasticFusion 8mm). `degraded + anchored-upsampled + GT
+poses`: 27.1mm, ~4x worse than the ceiling. That's also worse than the *plain
+degraded, non-upsampled* depth scored 10.4mm in the pose-ceiling run (same GT
+poses, same 5mm voxel) — a 2.6x gap suggesting the bilateral-solver anchored
+upsampler may be introducing real geometric bias despite looking visually
+sharp. **Confirmed real, not a measurement confound** — the user independently
+expected this finding. **A separate concurrent agent session is actively
+working on replacing/augmenting the bilateral-solver upsampler with a DA3
+(Depth Anything 3) prior** — matches the `da3_anchored` mode already
+scaffolded in `eval_iclnuim_ablation.py` / `indoor3d/da3_cache.py` /
+`scripts/precompute_da3_depth.py`. **Don't duplicate that work.** The missing
+`degraded+gt` combination (same script, same everything as `upsampled+gt`
+minus the upsample step) would be the cheapest way to fully isolate the
+upsampler's cost, if it's ever needed — not run yet.
+
+**Scale note:** COLMAP is currently seeded with ARKit poses for approximate
+metric scale (ARKit's VIO is metric via its IMU); exact scale precision is
+explicitly not the current priority.
+
+**Dense MVS ablation — superseded, do not run.** No `~/data/iclnuim/colmap_dense/`
+output exists despite the script (`eval_iclnuim_dense_mvs.py`) existing and
+looking complete. **Decided 2026-08-24: use DVP-MVS instead of this script** —
+see the section directly below. Several partial/aborted raw-dense-COLMAP
+attempts on the real capture (`colmap/dense*`, `dense_aborted_221547`,
+`dense_pilot30_starved` under `C:\Users\user\data\iphone\RawRecording_2026-08-18_215941\colmap\`)
+are on disk from before this decision — checked, all empty/incomplete
+(`dense/sparse` and `dense/images` both empty), i.e. raw dense COLMAP was
+stalling/too slow, which is part of why DVP-MVS was chosen instead. Safe to
+delete those `dense*` subfolders once DVP-MVS is confirmed working; not
+deleted yet.
+
+### Phase V status (2026-10-17) — verified against files on disk
+
+| Item | State |
+|---|---|
+| Pose ceiling, voxel sweep | done (results above) |
+| Ablation | 2 of 8 combos have output (`full_gt`, `upsampled_gt` in `iclnuim_output/ablation/`) |
+| DA3 depth cache | built: `~/data/iclnuim/da3_depth_cache/` (880 files). `da3_anchored` ablation **not yet run** |
+| DVP-MVS, iPhone capture | done: `iphone/RawRecording_2026-08-18_215941/dvpmvs/mvsnet_format/APD/APD.ply` + `APD_mesh.ply` |
+| DVP-MVS, ICL-NUIM | inputs staged (`~/data/iclnuim/dvpmvs/`), **no `APD.ply` yet**, so not scored |
+| ETH3D pass | not started |
+
+**Next, in order:** (1) run DVP-MVS on ICL-NUIM and score `APD.ply` with
+`iclnuim_eval.report()` against `living-room.ply`; (2) run the `da3_anchored`
+ablation, plus the cheap `degraded+gt` combo to isolate the bilateral-solver
+upsampler's cost; (3) view results (Open3D/Plotly for 3D, Matplotlib for plots)
+before drawing conclusions; (4) only then start ETH3D. Phase 5/6 stay parked
+until the upsampler question is settled.
+
+---
+
+## DVP-MVS setup (2026-08-24) — handoff for next agent
+
+**Decision:** run DVP-MVS (PatchMatch MVS, AAAI 2025,
+`github.com/ZhenlongYuan/DVP-MVS`) on the real RawRecording capture and on
+ICL-NUIM, using the sparse COLMAP results we already have, and compare its
+output to mrhash's. Replaces the dense-COLMAP ablation above — don't run
+`eval_iclnuim_dense_mvs.py`.
+
+**Build: done, both clones.** Windows clone `C:\Users\user\work\DVP-MVS` is
+for editing/reference; the WSL clone `~/work/DVP-MVS` is what actually builds
+and runs (same two-clone pattern as LichtFeld-Studio, see Compute notes above
+— a source fix has to land in *both* or the build silently keeps the old
+file). Two fixes were needed, applied to both clones:
+- `CMakeLists.txt`: `cmake_minimum_required` 2.8→3.10, `OpenCV_DIR` hardcoded
+  Windows path wrapped in `if(WIN32)...endif()`, CUDA arch `sm_80`→`sm_120`
+  (Blackwell).
+- `main.h`: deleted the `#include <cuda_texture_types.h>` line — CUDA 13.3
+  dropped that legacy header, and the code only uses the modern
+  `cudaTextureObject_t` API (confirmed via grep), not legacy `texture<>`
+  references, so it isn't needed.
+
+Executable confirmed working: `~/work/DVP-MVS/build/APD` →
+`USAGE: APD dense_folder`.
+
+**Known caveat, accepted by user:** the public DVP-MVS code does **not**
+actually contain the paper's claimed Depth-Anything-V2 integration — only
+classic `cv::Canny` edge detection. User chose to build/run it anyway.
+Wiring in a real monocular prior is explicit future work, not now — user has
+both DA2 and DA3 on disk locally and said "either will do" when we get to it.
+
+**Input format — this is the part not yet done.** `APD` takes one
+MVSNet-format `dense_folder` (must contain `cams/`, `images/`, `pair.txt`),
+produced by `colmap2mvsnet.py` (in the DVP-MVS repo root). That script is
+ETH3D-shaped and hardcodes `image_dir = dense_folder/images` and
+`model_dir = dense_folder/dslr_calibration_undistorted` — it does **not**
+take raw COLMAP sparse output paths directly. Before running it, build a
+staging dir per dataset:
+```
+<staging>/dense_folder/
+  images/                          -> symlink to the COLMAP images dir
+  dslr_calibration_undistorted/    -> cameras.txt, images.txt, points3D.txt
+                                       copied/symlinked from the sparse model
+```
+then:
+```
+python3 colmap2mvsnet.py --dense_folder <staging>/dense_folder \
+    --save_folder <staging>/mvsnet_format --model_ext .txt
+~/work/DVP-MVS/build/APD <staging>/mvsnet_format
+# output point cloud: <staging>/mvsnet_format/APD/APD.ply
+```
+WSL `python3` needed `numpy`/`pillow` for this script — installed via
+`pip3 install --user --break-system-packages numpy pillow` (already done).
+
+**Real capture COLMAP data, confirmed ready:**
+`C:\Users\user\data\iphone\RawRecording_2026-08-18_215941\colmap\sparse\refined\`
+— `cameras.txt` (539 cameras, **PINHOLE model, already undistorted, no
+distortion params** — per-frame ARKit-seeded intrinsics, plugs directly into
+`colmap2mvsnet.py`'s PINHOLE handling with no extra work), `images.txt`
+(1082 lines ≈ 539 posed images), `points3D.txt` (160k lines, well
+triangulated). Source images at `colmap/images/` (539 files).
+
+**ICL-NUIM COLMAP data:** `~/data/iclnuim/colmap/sparse/{seed,triangulated,
+refined}/` — use `refined` (or `triangulated` if `refined` turns out to be
+posterior-only) the same way, images at `~/data/iclnuim/rgb/`.
+
+**Not started yet:**
+1. Build the staging dir + run `colmap2mvsnet.py` + run `APD` for the real
+   capture.
+2. Same for ICL-NUIM.
+3. Score the ICL-NUIM DVP-MVS point cloud against `living-room.ply` using
+   `indoor3d/iclnuim_eval.py`'s `report()` (it's a point cloud, not a mesh —
+   load with `o3d.io.read_point_cloud` instead of `read_triangle_mesh`;
+   `report()` should work unchanged on a point set but verify).
+4. Compare both results to mrhash's recorded numbers (mrhash mesh outputs are
+   in `iclnuim_output/` / `replica/mrhash_mesh_10mm.ply` — see "Best known
+   configuration" section above).
+
+---
+
 ## Next: validate against ground truth (phase V)
 
 Everything above rests on a metric shown to be unreliable, and on visual
 judgement that does not scale. The fix is a dataset where truth is known.
+
+**Two-pass plan, decided 2026-08-24:** ICL-NUIM first (fast, ready-made RGB-D,
+answers the pose-vs-noise question below), then a second real-world pass on
+**ETH3D** (CC BY-NC-SA 3.0 — viable now that this is a personal/non-commercial
+project; real survey-grade laser-scan ground truth across real indoor scenes,
+stronger validation than synthetic, but needs a raycast-based pseudo-depth
+exporter since ETH3D ships photos + laser scan + COLMAP poses, not RGB-D pairs
+— same raycasting technique already used elsewhere in this project for
+measurement error). ETH3D not started; the ICL-NUIM pass is under way (see
+"Phase V status (2026-10-17)" below).
 
 **Data is downloaded and ready:** `~/data/iclnuim/` — ICL-NUIM living room
 trajectory 2 (882 frames), **CC BY 3.0, commercial use permitted with
@@ -209,11 +395,13 @@ capture rather than post-processing. Reuses existing poses and raycasting.
 
 | Repo | Why | For | Status |
 |---|---|---|---|
-| [PRBonn/SHINE_mapping](https://github.com/PRBonn/SHINE_mapping) | Sparse octree-encoded neural implicit mapping (ICRA 2023) — beat VDBFusion on accuracy/completeness in recent benchmarks; candidate to replace/augment classical TSDF fusion | Phase 6 | cloned — `work/SHINE_mapping` |
 | [ByteDance-Seed/depth-anything-3](https://github.com/ByteDance-Seed/depth-anything-3) | Monocular/multi-view depth. Tested: metric claim does not hold indoors (scale 0.92-1.67 across frames of one room); ~4% shape error after affine fit. Useful as structure, not geometry | Phase 3 | cloned — `work/depth-anything-3` |
-| [rvp-group/mrhash](https://github.com/rvp-group/mrhash) | Hash-based GPU TSDF fusion, variance-adaptive voxel grid (2025). **Tested against our exported dataset** (539 frames, anchored-upsampled depth, refined poses) at 10mm voxels: 2,886,403 verts / 2,930,679 faces, ~106s (8.7 fps). Handled 10mm where nvblox could not — **wins visually and on memory** (Pixi env, isolated CUDA 12.8, no conflict with system CUDA 13.3) | fusion candidate | built + run — `work/mrhash` (Win), `~/work/mrhash` (WSL) |
-| [nvidia-isaac/nvblox](https://github.com/nvidia-isaac/nvblox) | GPU voxel-hashing TSDF/ESDF fusion (not a true octree — see mrhash comparison in the original tooling survey). **Tested** on the same export: hard CUDA OOM at 10mm voxels (GPU buffer growth exceeds 16GB VRAM); succeeded at 20mm — 571,366 verts / 841,561 faces, 13.4s. Heavier per-voxel GPU footprint than mrhash at matched resolution | fusion candidate, lost to mrhash | built + run — `work/nvblox` (Win), `~/work/nvblox` (WSL) |
-| [MrNeRF/LichtFeld-Studio](https://github.com/MrNeRF/LichtFeld-Studio), [ethz-asl/voxblox](https://github.com/ethz-asl/voxblox), [ethz-mrl/supereight2](https://github.com/ethz-mrl/supereight2) | 3DGS trainer (reads COLMAP directly) and two more classical TSDF baselines from the original tooling survey | not yet run | cloned, untested — `work/<name>` |
+| [rvp-group/mrhash](https://github.com/rvp-group/mrhash) | Hash-based GPU TSDF fusion, variance-adaptive voxel grid (2025). **Tested against our exported dataset** (539 frames, anchored-upsampled depth, refined poses) at 10mm voxels: 2,886,403 verts / 2,930,679 faces, ~106s (8.7 fps). Handled 10mm where nvblox could not (Pixi env, isolated CUDA 12.8, no conflict with system CUDA 13.3). **Final ranking, by eye: mrhash > supereight2 > nvblox** (SHINE_mapping parked, see below). mrhash wins on visual quality, speed edge is small (supereight2 was actually ~17s faster), and mrhash's mesh is ~3.7x smaller on disk (169MB vs 621MB, since supereight2's is unwelded — 3 verts/face). **Decision: mrhash chosen as the fusion tool going forward** | **fusion candidate — chosen** | built + run — `work/mrhash` (Win), `~/work/mrhash` (WSL) |
+| [nvidia-isaac/nvblox](https://github.com/nvidia-isaac/nvblox) | GPU voxel-hashing TSDF/ESDF fusion (not a true octree — see mrhash comparison in the original tooling survey). **Tested** on the same export: hard CUDA OOM at 10mm voxels (GPU buffer growth exceeds 16GB VRAM); succeeded at 20mm — 571,366 verts / 841,561 faces, 13.4s. Heavier per-voxel GPU footprint than mrhash at matched resolution. **Visual verdict: medium** | fusion candidate, lost to mrhash and supereight2 on looks | built + run — `work/nvblox` (Win), `~/work/nvblox` (WSL) |
+| [ethz-mrl/supereight2](https://github.com/ethz-mrl/supereight2) | CPU-only octree TSDF (no CUDA at all). **Tested** on a TUM-format re-export of the same anchored depth/poses (`export_tum.py`): 88.5s total (539 frames, 6.1 fps), 13,428,342 verts / 4,476,114 faces. Note: unwelded mesh (exactly 3 verts/face), so vertex count isn't directly comparable to the others — triangle count (4.48M) is the fair number. No GPU, no OOM risk. **Visual verdict: much better — comparable to mrhash**, confirmed via direct side-by-side (`scripts/view_supereight2_vs_mrhash.py`): "both pretty good, [with] mrhash slightly better" — final ranking: **mrhash > supereight2**, both well ahead of nvblox, despite supereight2 being the only CPU-only entrant | **fusion candidate, runner-up to mrhash** | built + run — `work/supereight2` (Win), `~/work/supereight2` (WSL) |
+| [PRBonn/SHINE_mapping](https://github.com/PRBonn/SHINE_mapping) | Sparse octree-encoded neural implicit mapping (ICRA 2023) — beat VDBFusion on accuracy/completeness in published benchmarks. **Tested**: reused the Replica export reformatted to KITTI point-cloud format via the repo's own `rgbd_to_kitti_format.py`. Modern torch 2.8+cu128/kaolin 0.18 stack required (README's stale torch≤1.13.1 predates Blackwell). Batch mode's `every_frame=1` accumulation is genuinely O(n²) (`lidar_dataset.py:263`, repeated `torch.cat` on a growing pool) — needed `every_frame=4` subsampling (~135 effective frames) to finish in reasonable time. 20,000 iterations, 40:09, final mesh 3,580,410 verts / 6,204,034 faces. **Visual verdict: disaster** — good numbers, bad geometry. Leading suspect is the 4x frame subsampling starving the octree's per-cell training views, not the method itself; not yet re-tested at every_frame=1 with the O(n²) fix applied instead of worked around | Phase 6 candidate, currently failing | run — `~/work/SHINE_mapping` (WSL only) |
+| [MrNeRF/LichtFeld-Studio](https://github.com/MrNeRF/LichtFeld-Studio) | 3DGS trainer (reads COLMAP directly, not tested against our data yet — just the build). **Built successfully** after three separate real upstream linker bugs, in order: (1) GNU `ld`'s reloc-sort limitation on this large a binary — fixed by switching to `-fuse-ld=lld`; (2) WSL inheriting the full Windows `PATH` let CMake's `find_package(Tiff)` pick up a Windows Anaconda `tiff.dll` instead of vcpkg's own — fixed with a clean Linux-only `PATH` + `-UTiff_DIR`; (3) `lld`'s stricter undefined-symbol handling exposed a real gap where `libstdc++exp`'s C++23 `<stacktrace>` symbols never made it into `liblfs_core.so` — patched `src/core/CMakeLists.txt` to force `$<LINK_LIBRARY:WHOLE_ARCHIVE,stdc++exp>`. Executable builds and runs; one loose end: the optional `stubgen.py` Python-typing post-build step still hits the stacktrace symbol via its own strict `dlopen`, even though the real executable doesn't — root cause not found (isolated repro of the same symbol+flags works fine, so something specific to this ~100-library link graph shadows it) and deliberately not chased further since it's cosmetic (IDE autocomplete only) | fusion candidate (not yet run) | **built** — `~/work/LichtFeld-Studio/build/LichtFeld-Studio` (WSL only; not built on Win) |
+| [ethz-asl/voxblox](https://github.com/ethz-asl/voxblox) | Classical TSDF baseline from the original tooling survey | not yet run | cloned, untested — `work/voxblox` |
 
 ---
 
@@ -250,11 +438,13 @@ experiments. `refined_poses_seed.json` (539 poses, 7.5 mm) is the good one;
 fusion); `scripts/` the entry points. Each script's docstring explains *why* it
 does what it does, including the failures that shaped it.
 
-**Licensing** (checked, since commercial use is intended): ICL-NUIM is CC BY
-3.0. ARKitScenes grants commercial rights under 700M MAU, and its README
-confirms the licence covers the dataset, not just the code. ScanNet++ was ruled
-out for this reason. Your own captures are unencumbered. Not legal advice —
-worth a review before shipping.
+**Licensing.** Personal/non-commercial project as of 2026-08-24 — the earlier
+commercial-use premise (which ruled out ScanNet++) no longer applies, reopening
+NC-licensed datasets like ETH3D (CC BY-NC-SA 3.0) and ScanNet++. ICL-NUIM is
+CC BY 3.0 regardless. ARKitScenes grants commercial rights under 700M MAU, and
+its README confirms the licence covers the dataset, not just the code. Your own
+captures are unencumbered. Not legal advice — worth a review if commercial
+intent ever returns.
 
 ---
 
@@ -287,3 +477,30 @@ system-installed (mrhash wanted 12.6-12.x against our 13.3), reach for
 [Pixi](https://pixi.sh) if the repo offers it — pins its own isolated CUDA
 toolkit via conda-forge, sidesteps the conflict entirely instead of juggling
 multiple system CUDA installs.
+
+**More WSL2 gotchas, from the LichtFeld-Studio build specifically:**
+
+- **Two clones, one build.** `work/LichtFeld-Studio` (Windows) and
+  `~/work/LichtFeld-Studio` (WSL) are separate checkouts. Editing the Windows
+  one (natural, since Read/Edit tools default there) does nothing for a build
+  that only ever runs against the WSL copy — a source fix has to land in
+  *both*, or the build silently keeps using the unpatched file. Cost a full
+  extra rebuild cycle here.
+- **`ninja` does not reliably auto-reconfigure** on a `CMakeLists.txt` change
+  in this setup. Don't trust `cmake --build` alone after a source edit —
+  explicitly re-run `cmake -B build` first, or a stale `build.ninja` silently
+  keeps the old link command.
+- **`sudo` needs a real terminal.** Any `apt-get install` has to be run by the
+  user directly in their own WSL terminal (has a cached credential); an
+  automated non-interactive shell has no way to answer the password prompt and
+  just hangs until killed.
+- **Large binaries can exceed GNU `ld`'s reloc-sort capacity.** `unable to sort
+  relocs - they are of an unknown size` on a big shared library (CUDA + USD +
+  LibTorch + Vulkan all in one `.so`) is a known `bfd`-linker limitation, not
+  corruption — switch to `-fuse-ld=lld`.
+- **WSL inherits the whole Windows `PATH`.** CMake's `find_package` can pick up
+  a Windows-side library over the Linux one you actually want (here: Anaconda's
+  `tiff.dll` instead of vcpkg's `libtiff.a`) — silently, since both satisfy the
+  same `find_package` call. Strip `/mnt/c/...` entries from `PATH` before
+  configuring anything build-critical, and `-U<Var>_DIR` to force CMake to
+  re-search once the leak is fixed.

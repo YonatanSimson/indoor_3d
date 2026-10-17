@@ -194,6 +194,27 @@ confidence-edge detection switched from a bespoke gradient check to reusing
 two thresholds) — a meaningful minority (17% level 0, 25% level 1) rather than
 almost everything.
 
+**A second, more fundamental sensor-sim bug, found later (2026-08-20): the
+640x480→256x192 downsample used `cv2.INTER_AREA`.** That's a weighted average
+of every source pixel under each output cell — correct for shrinking a colour
+image (a camera pixel genuinely integrates light over its footprint), wrong
+for depth: a real coarser sensor has fewer discrete detectors, it does not
+optically blend two surfaces at an edge. Confirmed directly against real
+depth discontinuities in this dataset: at 8 sampled true edges, `INTER_AREA`
+invented a depth value belonging to *neither* surface at 6 of them (e.g. near
+surface 1.49m, far surface 2.80m, `INTER_AREA` output 2.22m — a value that
+exists nowhere in the real scene); nearest-neighbour subsampling
+(`cv2.INTER_NEAREST`, now what `_downsample_depth` uses) did this at 1 of 8,
+and that one was a boundary-rounding case, not a real blend. Fixed in
+`indoor3d/sensor_sim.py`; confidence-level distribution is essentially
+unchanged after the fix (16.7/24.9/58.3% vs. the original 17.3/24.8/57.9%),
+so the confidence calibration above still holds. **Every degraded-depth
+ICL-NUIM result below this point in the document (pose-ceiling, voxel sweep,
+upsampling, ablation) was computed with the old edge-blending downsample and
+should be treated as provisional until re-run** — not yet done as of this
+note, blocked by unrelated system memory pressure (a concurrent
+SHINE_mapping run) rather than anything about the fix itself.
+
 **The result** (`scripts/eval_iclnuim_pose_ceiling.py`, 880 frames, 5 mm voxel,
 simulated-sensor depth identical in both runs):
 
@@ -383,6 +404,14 @@ python scripts/eval_iclnuim_voxel_sweep.py
 python scripts/eval_iclnuim_upsampling.py
 python scripts/run_colmap_iclnuim.py --matcher exhaustive
 ```
+
+**Performance note, not yet acted on:** the per-frame bilateral solver
+(`depth_upsampling.upsample_bilateral_solver`, via `cv2.ximgproc`) is the
+slow part of any `--upsample anchored` run — 25 solver iterations per frame,
+CPU-only, 880 frames. Worth investigating a GPU path (e.g. a CuPy
+reimplementation of the fast bilateral solver, or an existing GPU bilateral
+solver library) if this becomes a recurring bottleneck. Deferred, not
+scoped.
 
 ---
 

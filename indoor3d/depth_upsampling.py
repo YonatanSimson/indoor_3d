@@ -25,6 +25,8 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from .anchoring import anchor_to_measurements
+
 
 def _guide_from_rgb(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
     """Resize RGB to the target grid as the 8-bit guide image."""
@@ -111,7 +113,9 @@ def upsample_bilateral_solver(
         weights = np.take(
             np.array([0.0, 0.5, 1.0], np.float32), confidence.astype(np.int32)
         )
-        weights = cv2.resize(weights, (width, height), interpolation=cv2.INTER_NEAREST)
+        weights = cv2.resize(
+            weights, (width, height), interpolation=cv2.INTER_NEAREST
+        ).astype(np.float32)
     else:
         weights = np.ones((height, width), np.float32)
     weights = np.where(coarse > 0, weights, 0.0).astype(np.float32)
@@ -207,6 +211,49 @@ def upsample_anchored(
     return np.where(solved > 0, corrected, 0.0).astype(np.float32)
 
 
+def upsample_from_prior(
+    depth: np.ndarray,
+    confidence: np.ndarray | None,
+    prior: np.ndarray,
+    width: int,
+    height: int,
+    min_confidence: int = 1,
+    fit_scale: bool = False,
+) -> np.ndarray:
+    """Anchor an externally supplied dense depth field to the sensor's readings.
+
+    `prior` already covers the full `(height, width)` grid, computed however
+    the caller likes -- a monocular network's prediction, a second sensor,
+    anything with plausible structure but no guarantee of agreeing with the
+    LiDAR numerically. This is the same correction `upsample_anchored` applies
+    to the bilateral solver's output, factored out via `anchor_to_measurements`
+    so a new prior source is a call site, not a second residual-diffusion
+    implementation. `upsample_anchored` keeps its own inline version rather
+    than being rewritten to call this: its blur-kernel sizing is tuned to the
+    solver's own upsample factor and is already validated in production, and
+    unifying the two isn't this change's purpose.
+
+    Set `fit_scale=True` for a prior that isn't already metric (e.g. monocular
+    depth, which is typically right up to an unknown scale and offset).
+    """
+    if prior.shape != (height, width):
+        raise ValueError(
+            f"prior must already be on the ({height}, {width}) target grid, got {prior.shape}"
+        )
+
+    measured = cv2.resize(depth, (width, height), interpolation=cv2.INTER_NEAREST)
+    conf_fine = None
+    if confidence is not None:
+        conf_fine = cv2.resize(
+            confidence, (width, height), interpolation=cv2.INTER_NEAREST
+        )
+
+    corrected, _ = anchor_to_measurements(
+        prior, measured, conf_fine, min_confidence=min_confidence, fit_scale=fit_scale
+    )
+    return corrected
+
+
 def upsample(
     depth: np.ndarray,
     rgb: np.ndarray,
@@ -214,10 +261,13 @@ def upsample(
     width: int,
     height: int,
     method: str = "solver",
+    prior: np.ndarray | None = None,
 ) -> np.ndarray:
     """Dispatch to one of the upsampling methods.
 
-    `method` is one of "bilinear", "joint", "solver", "anchored", or "none".
+    `method` is one of "bilinear", "joint", "solver", "anchored", "external",
+    or "none". "external" anchors `prior` (required) to the measurements via
+    `upsample_from_prior` -- e.g. a cached monocular depth prediction.
     """
     if method == "none" or (width, height) == (depth.shape[1], depth.shape[0]):
         return depth.astype(np.float32)
@@ -229,4 +279,10 @@ def upsample(
         return upsample_bilateral_solver(depth, rgb, confidence, width, height)
     if method == "anchored":
         return upsample_anchored(depth, rgb, confidence, width, height)
+    if method == "external":
+        if prior is None:
+            raise ValueError("method 'external' requires a prior depth map")
+        return upsample_from_prior(
+            depth, confidence, prior, width, height, fit_scale=True
+        )
     raise ValueError(f"unknown upsampling method {method!r}")

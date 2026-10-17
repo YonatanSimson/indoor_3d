@@ -76,21 +76,21 @@ class SensorSimConfig:
 
 
 def _downsample_depth(depth: np.ndarray, width: int, height: int) -> np.ndarray:
-    """Area-average valid depth to a coarser grid; holes stay holes.
+    """Subsample to a coarser grid, one source pixel per output cell.
 
-    Mirrors `depth_upsampling.upsample_bilinear`'s hole-handling in reverse:
-    averaging raw zeros into a downsampled pixel would pull it toward the
-    camera, so invalid source pixels are excluded from the average via a
-    normalised-convolution resize rather than a plain `cv2.resize`.
+    An earlier version used `cv2.INTER_AREA` (a weighted average of every
+    source pixel under each output cell), which is wrong for what this is
+    simulating: a real depth sensor with fewer, discrete sampling points
+    does not optically blend two surfaces together at an edge, it reads one
+    point per detector. Averaging invents exactly the "flying pixel" defect
+    `depth_filters.py` exists to filter out -- confirmed empirically at real
+    depth discontinuities in this dataset: `INTER_AREA` fabricated a depth
+    value belonging to neither surface at 6 of 8 sampled edges, against 1 of
+    8 (a boundary rounding case, not a real blend) for nearest-neighbour
+    subsampling used here. `INTER_NEAREST` never averages, so holes (0)
+    stay holes with no separate masking needed.
     """
-    valid = (depth > 0).astype(np.float32)
-    depth_sum = cv2.resize(depth * valid, (width, height), interpolation=cv2.INTER_AREA)
-    weight = cv2.resize(valid, (width, height), interpolation=cv2.INTER_AREA)
-
-    out = np.zeros((height, width), dtype=np.float32)
-    usable = weight > 1e-3
-    out[usable] = depth_sum[usable] / weight[usable]
-    return out
+    return cv2.resize(depth, (width, height), interpolation=cv2.INTER_NEAREST)
 
 
 def _synthesize_confidence(

@@ -11,19 +11,60 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import laspy
 import numpy as np
 import open3d as o3d
 from scipy.spatial import cKDTree
 
+# 0.1mm resolution: an order of magnitude finer than any voxel size this
+# project uses, so LAZ's fixed-point quantisation never becomes a source of
+# error in its own right.
+_LAZ_POINT_SCALE = 0.0001
+
+
+def _write_laz_cache(path: Path, points: np.ndarray) -> None:
+    header = laspy.LasHeader(point_format=0, version="1.4")
+    header.offsets = points.min(axis=0)
+    header.scales = [_LAZ_POINT_SCALE] * 3
+    las = laspy.LasData(header)
+    las.x, las.y, las.z = points[:, 0], points[:, 1], points[:, 2]
+    las.write(str(path))
+
+
+def _read_laz_cache(path: Path) -> np.ndarray:
+    las = laspy.read(str(path))
+    return np.column_stack([las.x, las.y, las.z]).astype(np.float64)
+
 
 def load_ground_truth_tree(path: Path, voxel: float) -> tuple[cKDTree, np.ndarray]:
-    """Ground truth is a ~10M-point cloud (no faces) -- see data_iclnuim.py."""
+    """Ground truth is a ~10M-point cloud (no faces) -- see data_iclnuim.py.
+
+    Reading and voxel-downsampling that cloud is the single heaviest,
+    slowest step every one of these eval scripts runs, and it produces the
+    *same* result every time for a given voxel size -- so the downsampled
+    result is cached as compressed LAZ (via `laspy`, the standard point-cloud
+    interchange format, rather than a bespoke `.npy` blob) next to the
+    source file, in the data folder rather than the project tree per
+    CLAUDE.md, so it's inspectable in CloudCompare/PDAL/any LiDAR tool too.
+    """
+    cache_path = path.parent / f".{path.stem}_cache_{voxel * 1000:.1f}mm.laz"
+    if cache_path.is_file():
+        print(f"loading cached ground-truth cloud {cache_path.name} ...", flush=True)
+        points = _read_laz_cache(cache_path)
+        print(f"  {len(points):,} points (cached, skipping the full read + downsample)")
+        return cKDTree(points), points
+
     print(f"reading ground-truth cloud {path.name} ...", flush=True)
     cloud = o3d.io.read_point_cloud(str(path))
     print(f"  {len(cloud.points):,} points, downsampling to {voxel * 1000:.0f} mm")
     cloud = cloud.voxel_down_sample(voxel)
     points = np.asarray(cloud.points)
     print(f"  {len(points):,} points after downsampling")
+
+    _write_laz_cache(cache_path, points)
+    print(
+        f"  cached to {cache_path.name} for next time ({cache_path.stat().st_size / 1e6:.1f} MB)"
+    )
     return cKDTree(points), points
 
 

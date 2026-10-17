@@ -9,7 +9,11 @@ the fusion algorithm itself could each explain it. This isolates each axis:
 - **depth**: `full` (native 640x480 clean depth, no degradation -- the same
   resolution SOTA methods get) vs `degraded` (256x192 ARKit-simulated, what
   a real capture actually gives us) vs `upsampled` (degraded then restored
-  with `--upsample anchored`, the production configuration).
+  with `--upsample anchored`, the production configuration) vs
+  `da3_anchored` (degraded, then restored using a cached Depth Anything 3
+  monocular prediction as the upsample structure prior instead of the
+  bilateral solver's RGB-edge fill -- see `scripts/precompute_da3_depth.py`,
+  which must be run first).
 - **poses**: `gt` (ground truth) vs `perturbed` (~7.5mm noise, matching real
   COLMAP-vs-ARKit disagreement).
 
@@ -27,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from indoor3d.da3_cache import CachedDepthProvider
 from indoor3d.data import PosedSequence
 from indoor3d.data_iclnuim import ICLNUIMSequence
 from indoor3d.fusion import FusionConfig, fuse, save_mesh
@@ -34,7 +39,7 @@ from indoor3d.iclnuim_eval import REPORT_HEADER, load_ground_truth_tree, report
 from indoor3d.pose_perturbation import perturb_poses
 from indoor3d.sensor_sim import DegradedSequence
 
-DEPTH_MODES = ("full", "degraded", "upsampled")
+DEPTH_MODES = ("full", "degraded", "upsampled", "da3_anchored")
 POSE_MODES = ("gt", "perturbed")
 
 
@@ -50,6 +55,11 @@ def main() -> int:
         "--voxel", type=float, default=0.005, help="fusion voxel, metres"
     )
     parser.add_argument("--upsample-scale", type=float, default=3.0)
+    parser.add_argument(
+        "--da3-cache-dir",
+        default=None,
+        help="default: <root>/da3_depth_cache (see scripts/precompute_da3_depth.py)",
+    )
     parser.add_argument("--gt-voxel", type=float, default=0.005)
     parser.add_argument("--max-distance", type=float, default=0.3)
     parser.add_argument("--translation-std", type=float, default=0.0075)
@@ -108,12 +118,21 @@ def main() -> int:
             working_sequence = sequence
         elif depth_mode == "degraded":
             working_sequence = degraded_sequence
-        else:  # upsampled
+        elif depth_mode == "upsampled":
             working_sequence = degraded_sequence
             config = FusionConfig(
                 voxel_length=args.voxel,
                 upsample_method="anchored",
                 upsample_scale=args.upsample_scale,
+            )
+        else:  # da3_anchored
+            working_sequence = degraded_sequence
+            da3_cache_dir = args.da3_cache_dir or (Path(args.root) / "da3_depth_cache")
+            config = FusionConfig(
+                voxel_length=args.voxel,
+                upsample_method="external",
+                upsample_scale=args.upsample_scale,
+                depth_prior_provider=CachedDepthProvider(da3_cache_dir),
             )
 
         mesh, _ = fuse(working_sequence, config, progress_every=0)
